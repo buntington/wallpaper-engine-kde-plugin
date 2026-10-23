@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: devtest/sweep.sh <out dir> <scene.json>...
+# Usage: [BUILDS="sys ours"] devtest/sweep.sh <out dir> <scene.json>...
 # Renders every scene with the installed plugin ("sys") and the staged build ("ours")
 # in a standalone window, and writes screenshots, logs and results.tsv to <out dir>.
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,7 +23,7 @@ except Exception:
 
 for scene in "$@"; do
     name=$(basename "$(dirname "$scene")")
-    for build in sys ours; do
+    for build in ${BUILDS:-sys ours}; do
         png="$out/$name-$build.png"
         log="$out/$name-$build.log"
         rm -f "$png"
