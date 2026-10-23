@@ -1,0 +1,88 @@
+{
+ "general": {
+  "ambientcolor": "0.30000 0.30000 0.30000",
+  "bloom": false,
+  "bloomhdrfeather": 0.1,
+  "bloomhdriterations": 8,
+  "bloomhdrscatter": 1.619,
+  "bloomhdrstrength": 2.0,
+  "bloomhdrthreshold": 1.0,
+  "bloomstrength": 2.0,
+  "bloomthreshold": 0.64999998,
+  "bloomtint": "1.00000 1.00000 1.00000",
+  "camerafade": true,
+  "cameraparallax": false,
+  "cameraparallaxamount": 0.5,
+  "cameraparallaxdelay": 0.1,
+  "cameraparallaxmouseinfluence": 0.5,
+  "camerapreview": true,
+  "camerashake": false,
+  "camerashakeamplitude": 0.5,
+  "camerashakeroughness": 1.0,
+  "camerashakespeed": 3.0,
+  "clearcolor": "0 0 0",
+  "clearenabled": true,
+  "farz": 10000.0,
+  "fov": 50.0,
+  "gravitydirection": "0.00000 -1.00000 0.00000",
+  "gravitystrength": 1.0,
+  "hdr": false,
+  "nearz": 0.0099999998,
+  "orthogonalprojection": {
+   "width": 1920,
+   "height": 1080
+  },
+  "perspectiveoverridefov": 95.0,
+  "skylightcolor": "0.30000 0.30000 0.30000",
+  "winddirection": "0.70700 0.70700 0.00000",
+  "windenabled": false,
+  "windstrength": 1.0,
+  "zoom": 1.0
+ },
+ "objects": [
+  {
+   "id": 1,
+   "name": "meter",
+   "text": "BASS",
+   "font": "systemfont_sans",
+   "pointsize": 60,
+   "size": "900 300",
+   "horizontalalign": "center",
+   "verticalalign": "center",
+   "padding": 10,
+   "origin": "960 540 0",
+   "scale": "1 1 1",
+   "angles": "0 0 0",
+   "color": "1 1 1",
+   "visible": true,
+   "effects": [
+    {
+     "file": "effects/pulse/effect.json",
+     "visible": true,
+     "passes": [
+      {
+       "combos": {
+        "AUDIOPROCESSING": 0,
+        "PULSEALPHA": 1
+       },
+       "constantshadervalues": {
+        "frequencymin": 0,
+        "frequencymax": 5,
+        "audiobounds": "0 0.3",
+        "audioamount": 1,
+        "audioexponent": 1,
+        "speed": 0,
+        "phase": 0
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "camera": {
+  "center": "0 0 -1",
+  "eye": "0 0 0",
+  "up": "0 1 0"
+ }
+}

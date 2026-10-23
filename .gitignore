@@ -18,3 +18,14 @@ build
 .cache
 cmake-build-debug
 build-*
+
+# local builds and test output
+/build/
+/stage/
+/build*.log
+/devtest/scene-data.js
+/devtest/text-live.qml
+/pkg/arch/src/
+/pkg/arch/pkg/
+/pkg/arch/*.pkg.tar.*
+plugin/contents/__pycache__/
