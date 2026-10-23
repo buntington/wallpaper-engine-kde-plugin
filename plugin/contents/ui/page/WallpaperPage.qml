@@ -361,18 +361,18 @@ RowLayout {
 
     Control {
         id: right_content
-        Layout.preferredWidth: parent.width / 3
+        // never narrower than this, so the wallpaper's options stay reachable in small dialogs
+        Layout.preferredWidth: Math.max(parent.width / 3, 260)
         Layout.fillHeight: true
 
-        readonly property int image_size: 300
         readonly property int content_margin: 16
+        readonly property int image_size: Math.min(300, width - content_margin*2 - right_content_scrollbar.width)
         property var wpmodel: { 
             return picViewLoader.item.currentModel
             ? Common.wpitemFromQtObject(picViewLoader.item.currentModel)
             : Common.wpitem_template;
         }
 
-        visible: Layout.preferredWidth > image_size + content_margin*2 + right_content_scrollbar.width
 
         topPadding: 0
         leftPadding: 0
