@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "VulkanPass.hpp"
 #include <string>
 #include <vector>
@@ -24,6 +25,10 @@ public:
         std::vector<std::string> textures;
         std::string              output;
         sprite_map_t             sprites_map;
+        // 3D passes share a depth image per output size; the first one clears it
+        bool depth { false };
+        bool depth_clear { false };
+        const VmaImageParameters* depth_image { nullptr };
 
         // -----prepared
         // vulkan texs
@@ -38,7 +43,7 @@ public:
         StagingBufferRef              ubo_buf;
 
         // pipeline
-        VkClearValue       clear_value;
+        std::array<VkClearValue, 2> clear_values {};
         bool               blending { false };
         vvk::Framebuffer   fb;
         PipelineParameters pipeline;

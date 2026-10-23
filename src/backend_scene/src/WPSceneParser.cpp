@@ -15,6 +15,7 @@
 #include "WPSoundParser.hpp"
 #include "WPMdlParser.hpp"
 #include "Text/TextLayers.hpp"
+#include "WPModelParser.hpp"
 
 #include "Particle/WPParticleRawGener.h"
 #include "Particle/ParticleSystem.h"
@@ -56,10 +57,23 @@ struct ParseContext {
     std::shared_ptr<SceneNode> effect_camera_node;
     std::shared_ptr<SceneNode> global_camera_node;
     std::shared_ptr<SceneNode> global_perspective_camera_node;
+
+    const nlohmann::json* user_properties { nullptr };
+};
+
+// A scene "model" object: a 3D model drawn with the scene's 3D camera.
+struct WPModelObject {
+    int32_t              id { 0 };
+    std::string          name;
+    std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
+    std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
+    std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
+    bool                 visible { true };
+    WPModel              model;
 };
 
 using WPObjectVar = std::variant<wpscene::WPImageObject, wpscene::WPParticleObject,
-                                 wpscene::WPSoundObject, wpscene::WPLightObject>;
+                                 wpscene::WPSoundObject, wpscene::WPLightObject, WPModelObject>;
 
 namespace
 {
@@ -406,7 +420,10 @@ bool LoadMaterial(fs::VFS& vfs, const wpscene::WPMaterial& wpmat, Scene* pScene,
         return false;
     }
 
-    material.blenmode = ParseBlendMode(wpmat.blending);
+    material.blenmode   = ParseBlendMode(wpmat.blending);
+    material.depthTest  = wpmat.depthtest == "enabled";
+    material.depthWrite = wpmat.depthwrite == "enabled";
+    material.cullBack   = wpmat.cullmode == "normal";
 
     for (uint i = 0; i < material.textures.size(); i++) {
         if (! exists(sd_units[1].preprocess_info.active_tex_slots, i)) material.textures[i].clear();
@@ -510,7 +527,9 @@ void InitContext(ParseContext& context, fs::VFS& vfs, wpscene::WPScene& sc) {
     GenCardMesh(scene.default_effect_mesh, { 2, 2 });
     context.shader_updater = static_cast<WPShaderValueUpdater*>(scene.shaderValueUpdater.get());
 
-    scene.clearColor = sc.general.clearcolor;
+    scene.clearColor    = sc.general.clearcolor;
+    scene.ambientColor  = sc.general.ambientcolor;
+    scene.skylightColor = sc.general.skylightcolor;
     scene.ortho[0]   = sc.general.orthogonalprojection.width;
     scene.ortho[1]   = sc.general.orthogonalprojection.height;
     context.ortho_w  = scene.ortho[0];
@@ -1082,6 +1101,93 @@ void ParseLightObj(ParseContext& context, wpscene::WPLightObject& light_obj) {
     context.scene->sceneGraph->AppendChild(node);
 }
 
+constexpr std::string_view Camera3D { "scene_3d" };
+
+// Values of user properties bound into shaders: "usershadervalues" maps a
+// property name to a material constant, e.g. a car's paint color.
+void ApplyUserShaderValues(const nlohmann::json& jPass, const nlohmann::json* props,
+                           wpscene::WPMaterial& wpmat) {
+    if (props == nullptr || ! jPass.contains("usershadervalues")) return;
+    for (const auto& [prop, constant] : jPass.at("usershadervalues").items()) {
+        if (! constant.is_string() || ! props->contains(prop)) continue;
+        const auto&        v = props->at(prop);
+        std::vector<float> values;
+        if (v.is_number()) values = { v.get<float>() };
+        else if (v.is_boolean()) values = { v.get<bool>() ? 1.0f : 0.0f };
+        else if (v.is_string()) {
+            std::istringstream in(v.get<std::string>());
+            for (float f; in >> f;) values.push_back(f);
+        }
+        if (! values.empty()) wpmat.constantshadervalues[constant.get<std::string>()] = values;
+    }
+}
+
+void ParseModelObj(ParseContext& context, WPModelObject& obj) {
+    auto& vfs   = *context.vfs;
+    auto& scene = *context.scene;
+
+    for (const auto& src : obj.model.meshes) {
+        nlohmann::json jMat;
+        if (src.materials.empty() ||
+            ! PARSE_JSON(fs::GetFileContent(vfs, "/assets/" + src.materials[0]), jMat)) {
+            LOG_ERROR("model '%s': can't load material", obj.name.c_str());
+            continue;
+        }
+        wpscene::WPMaterial wpmat;
+        if (! wpmat.FromJson(jMat)) continue;
+        // Unlike images, models are opaque, test and write depth and cull back faces
+        // unless the material says otherwise; additive surfaces (glows) don't hide
+        // what's behind them.
+        if (! wpmat.hasBlending) wpmat.blending = "normal";
+        if (! wpmat.hasDepthtest) wpmat.depthtest = "enabled";
+        if (! wpmat.hasDepthwrite) wpmat.depthwrite = wpmat.blending == "additive" ? "disabled" : "enabled";
+        if (! wpmat.hasCullmode) wpmat.cullmode = "normal";
+        ApplyUserShaderValues(jMat.at("passes").at(0), context.user_properties, wpmat);
+
+        auto node = std::make_shared<SceneNode>(Vector3f(obj.origin.data()),
+                                                Vector3f(obj.scale.data()),
+                                                Vector3f(obj.angles.data()));
+        node->ID() = obj.id;
+        if (scene.cameras.count(std::string(Camera3D)) != 0) node->SetCamera(std::string(Camera3D));
+
+        SceneMaterial     material;
+        WPShaderValueData svData;
+        WPShaderInfo      shaderInfo;
+        shaderInfo.baseConstSvs = context.global_base_uniforms;
+        if (! LoadMaterial(vfs, wpmat, context.scene.get(), node.get(), &material, &svData, &shaderInfo)) {
+            LOG_ERROR("model '%s': material '%s' failed", obj.name.c_str(), src.materials[0].c_str());
+            continue;
+        }
+        LoadConstvalue(material, wpmat, shaderInfo);
+
+        auto spMesh = std::make_shared<SceneMesh>();
+        WPModelParser::GenMesh(*spMesh, src);
+        spMesh->AddMaterial(std::move(material));
+        node->AddMesh(spMesh);
+        context.shader_updater->SetNodeData(node.get(), svData);
+        scene.sceneGraph->AppendChild(node);
+    }
+}
+
+void AddModelObject(std::vector<WPObjectVar>& objs, const nlohmann::json& json, fs::VFS& vfs) {
+    WPModelObject obj;
+    GET_JSON_NAME_VALUE_NOWARN(json, "visible", obj.visible);
+    if (! obj.visible) return;
+    std::string path;
+    GET_JSON_NAME_VALUE(json, "model", path);
+    GET_JSON_NAME_VALUE_NOWARN(json, "name", obj.name);
+    GET_JSON_NAME_VALUE_NOWARN(json, "id", obj.id);
+    GET_JSON_NAME_VALUE_NOWARN(json, "origin", obj.origin);
+    GET_JSON_NAME_VALUE_NOWARN(json, "scale", obj.scale);
+    GET_JSON_NAME_VALUE_NOWARN(json, "angles", obj.angles);
+    if (path.empty() || ! WPModelParser::Parse(path, vfs, obj.model)) {
+        LOG_ERROR("model '%s': can't load %s", obj.name.c_str(), path.c_str());
+        return;
+    }
+    LOG_INFO("model '%s': %zu meshes from %s", obj.name.c_str(), obj.model.meshes.size(), path.c_str());
+    objs.push_back(std::move(obj));
+}
+
 template<typename T>
 void AddWPObject(std::vector<WPObjectVar>& objs, const nlohmann::json& json_obj, fs::VFS& vfs) {
     T wpobj;
@@ -1200,6 +1306,8 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
             AddWPObject<wpscene::WPImageObject>(wp_objs, obj, vfs);
         } else if (obj.contains("text") && ! obj.at("text").is_null()) {
             AddTextObject(wp_objs, obj, vfs, *texts);
+        } else if (obj.contains("model") && obj.at("model").is_string()) {
+            AddModelObject(wp_objs, obj, vfs);
         } else if (obj.contains("particle") && ! obj.at("particle").is_null()) {
             AddWPObject<wpscene::WPParticleObject>(wp_objs, obj, vfs);
         } else if (obj.contains("sound") && ! obj.at("sound").is_null()) {
@@ -1229,6 +1337,20 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
     context.scene->imageParser = std::make_unique<TextImageParser>(
         std::move(context.scene->imageParser), texts);
     ParseCamera(context, sc.general);
+    context.user_properties = &m_user_properties;
+
+    // 3D models use the scene's own camera; the aspect follows the output size.
+    if (std::any_of(wp_objs.begin(), wp_objs.end(), [](const WPObjectVar& o) {
+            return std::holds_alternative<WPModelObject>(o);
+        })) {
+        const auto& c   = sc.camera;
+        auto        cam = std::make_shared<SceneCamera>(
+            16.0f / 9.0f, sc.general.nearz, sc.general.farz, sc.general.fov);
+        cam->SetLookAt(Vector3d(c.eye[0], c.eye[1], c.eye[2]),
+                       Vector3d(c.center[0], c.center[1], c.center[2]),
+                       Vector3d(c.up[0], c.up[1], c.up[2]));
+        context.scene->cameras[std::string(Camera3D)] = cam;
+    }
 
     {
         context.scene->renderTargets[SpecTex_Default.data()] = {
@@ -1261,6 +1383,9 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
                        },
                        [&context](wpscene::WPLightObject& obj) {
                            ParseLightObj(context, obj);
+                       },
+                       [&context](WPModelObject& obj) {
+                           ParseModelObj(context, obj);
                        },
                    },
                    obj);

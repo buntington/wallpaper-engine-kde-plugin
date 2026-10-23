@@ -21,8 +21,80 @@ CustomShaderPass::CustomShaderPass(const Desc& desc) {
     m_desc.textures    = desc.textures;
     m_desc.output      = desc.output;
     m_desc.sprites_map = desc.sprites_map;
+    m_desc.depth       = desc.depth;
+    m_desc.depth_clear = desc.depth_clear;
 };
 CustomShaderPass::~CustomShaderPass() {}
+
+// Color plus a depth attachment, for 3D passes.
+std::optional<vvk::RenderPass> CreateDepthRenderPass(const vvk::Device& device, VkFormat format,
+                                                     VkAttachmentLoadOp loadOp, bool clear_depth) {
+    std::array<VkAttachmentDescription, 2> attachments {
+        VkAttachmentDescription {
+            .format         = format,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = loadOp,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = loadOp == VK_ATTACHMENT_LOAD_OP_LOAD
+                                  ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                  : VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        },
+        VkAttachmentDescription {
+            .format         = DepthTargets::Format,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = clear_depth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = clear_depth ? VK_IMAGE_LAYOUT_UNDEFINED
+                                          : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        },
+    };
+    VkAttachmentReference color_ref { .attachment = 0,
+                                      .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkAttachmentReference depth_ref { .attachment = 1,
+                                      .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription  subpass {
+         .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
+         .colorAttachmentCount    = 1,
+         .pColorAttachments       = &color_ref,
+         .pDepthStencilAttachment = &depth_ref,
+    };
+    // Earlier passes may still write the color target and depth image.
+    VkSubpassDependency dependency {
+        .srcSubpass    = VK_SUBPASS_EXTERNAL,
+        .dstSubpass    = 0,
+        .srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    };
+    VkRenderPassCreateInfo creatinfo {
+        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = (uint32_t)attachments.size(),
+        .pAttachments    = attachments.data(),
+        .subpassCount    = 1,
+        .pSubpasses      = &subpass,
+        .dependencyCount = 1,
+        .pDependencies   = &dependency,
+    };
+    vvk::RenderPass pass;
+    if (auto res = device.CreateRenderPass(creatinfo, pass); res == VK_SUCCESS) return pass;
+    else {
+        VVK_CHECK(res);
+        return std::nullopt;
+    }
+}
 
 std::optional<vvk::RenderPass> CreateRenderPass(const vvk::Device& device, VkFormat format,
                                                 VkAttachmentLoadOp loadOp,
@@ -219,6 +291,9 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
                     case VertexType::UNORM8x4: format = VK_FORMAT_R8G8B8A8_UNORM; break;
                     case VertexType::HALF2: format = VK_FORMAT_R16G16_SFLOAT; break;
                     case VertexType::HALF4: format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+                    case VertexType::SNORM16x4: format = VK_FORMAT_R16G16B16A16_SNORM; break;
+                    case VertexType::UNORM16x2: format = VK_FORMAT_R16G16_UNORM; break;
+                    case VertexType::UNORM16x4: format = VK_FORMAT_R16G16B16A16_UNORM; break;
                     default: break;
                     }
                 }
@@ -234,11 +309,11 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
             {
                 auto& buf = m_desc.vertex_bufs[i];
                 if (! m_desc.dyn_vertex) {
-                    if (! rr.vertex_buf->allocateSubRef(vertex.CapacitySizeOf(), buf)) return;
+                    if (! rr.vertex_buf->allocateSubRef(vertex.CapacitySizeOf(), buf)) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "vertex buffer"); return; }
                     if (! rr.vertex_buf->writeToBuf(buf, { (uint8_t*)vertex.Data(), buf.size }))
-                        return;
+                        { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "vertex upload"); return; }
                 } else {
-                    if (! rr.dyn_buf->allocateSubRef(vertex.CapacitySizeOf(), buf)) return;
+                    if (! rr.dyn_buf->allocateSubRef(vertex.CapacitySizeOf(), buf)) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "dynamic vertex buffer"); return; }
                 }
             }
             m_desc.draw_count += (u32)(vertex.DataSize() / vertex.OneSize());
@@ -250,10 +325,10 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
             m_desc.draw_count = (u32)count * 3;
             auto& buf         = m_desc.index_buf;
             if (! m_desc.dyn_vertex) {
-                if (! rr.vertex_buf->allocateSubRef(indice.CapacitySizeof(), buf)) return;
-                if (! rr.vertex_buf->writeToBuf(buf, { (uint8_t*)indice.Data(), buf.size })) return;
+                if (! rr.vertex_buf->allocateSubRef(indice.CapacitySizeof(), buf)) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "index buffer"); return; }
+                if (! rr.vertex_buf->writeToBuf(buf, { (uint8_t*)indice.Data(), buf.size })) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "index upload"); return; }
             } else {
-                if (! rr.dyn_buf->allocateSubRef(indice.CapacitySizeof(), buf)) return;
+                if (! rr.dyn_buf->allocateSubRef(indice.CapacitySizeof(), buf)) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "dynamic index buffer"); return; }
             }
         }
     }
@@ -275,11 +350,16 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
 
             SetAttachmentLoadOp(blendmode, loadOp);
         }
-        auto opt = CreateRenderPass(device.handle(),
-                                    VK_FORMAT_R8G8B8A8_UNORM,
-                                    loadOp,
-                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        if (! opt.has_value()) return;
+        if (m_desc.depth) m_desc.depth_image = rr.depth->Get(m_desc.vk_output.extent);
+        if (m_desc.depth && m_desc.depth_image == nullptr) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "depth image"); return; }
+        auto opt = m_desc.depth
+                       ? CreateDepthRenderPass(
+                             device.handle(), VK_FORMAT_R8G8B8A8_UNORM, loadOp, m_desc.depth_clear)
+                       : CreateRenderPass(device.handle(),
+                                          VK_FORMAT_R8G8B8A8_UNORM,
+                                          loadOp,
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (! opt.has_value()) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "render pass"); return; }
         auto& pass = opt.value();
 
         descriptor_info.push_descriptor = true;
@@ -292,17 +372,27 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
             .addInputBindingDescription(bind_descriptions)
             .addInputAttributeDescription(attr_descriptions);
         for (auto& spv : spvs) pipeline.addStage(std::move(spv));
+        if (m_desc.depth) {
+            const auto* mat       = mesh.Material();
+            pipeline.depth.depthTestEnable  = mat->depthTest;
+            pipeline.depth.depthWriteEnable = mat->depthWrite;
+            pipeline.depth.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+            pipeline.raster.cullMode = mat->cullBack ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
+        }
 
-        if (! pipeline.create(device, pass, m_desc.pipeline)) return;
+        if (! pipeline.create(device, pass, m_desc.pipeline)) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "pipeline"); return; }
     }
 
     {
+        const std::array<VkImageView, 2> views {
+            m_desc.vk_output.view, m_desc.depth ? *m_desc.depth_image->view : VK_NULL_HANDLE
+        };
         VkFramebufferCreateInfo info {
             .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .pNext           = nullptr,
             .renderPass      = *m_desc.pipeline.pass,
-            .attachmentCount = 1,
-            .pAttachments    = &m_desc.vk_output.view,
+            .attachmentCount = m_desc.depth ? 2u : 1u,
+            .pAttachments    = views.data(),
             .width           = m_desc.vk_output.extent.width,
             .height          = m_desc.vk_output.extent.height,
             .layers          = 1,
@@ -402,9 +492,10 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
 
     {
         auto& sc           = scene.clearColor;
-        m_desc.clear_value = VkClearValue {
+        m_desc.clear_values[0] = VkClearValue {
             .color = { sc[0], sc[1], sc[2], 1.0f },
         };
+        m_desc.clear_values[1] = VkClearValue { .depthStencil = { 1.0f, 0 } };
     }
     for (auto& tex : releaseTexs()) {
         device.tex_cache().MarkShareReady(tex);
@@ -489,8 +580,8 @@ void CustomShaderPass::execute(const Device&, RenderingResources& rr) {
                 .offset = { 0, 0 },
                 .extent = { outext.width, outext.height },
             },
-        .clearValueCount = 1,
-        .pClearValues    = &m_desc.clear_value,
+        .clearValueCount = m_desc.depth ? 2u : 1u,
+        .pClearValues    = m_desc.clear_values.data(),
     };
     cmd.BeginRenderPass(pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 

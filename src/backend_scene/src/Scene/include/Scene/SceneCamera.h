@@ -29,6 +29,10 @@ public:
 
     void AttatchNode(std::shared_ptr<SceneNode>);
 
+    // A fixed eye/center/up instead of an attached node (3D scene cameras).
+    void SetLookAt(const Eigen::Vector3d& eye, const Eigen::Vector3d& center,
+                   const Eigen::Vector3d& up);
+
     bool   IsPerspective() const { return m_perspective; }
     double Aspect() const { return m_aspect; }
     double Width() const { return m_width; }
@@ -82,6 +86,11 @@ private:
 
     Eigen::Matrix4d m_viewMat { Eigen::Matrix4d::Identity() };
     Eigen::Matrix4d m_viewProjectionMat { Eigen::Matrix4d::Identity() };
+
+    bool            m_lookAt { false };
+    Eigen::Vector3d m_eye { Eigen::Vector3d::Zero() };
+    Eigen::Vector3d m_center { -Eigen::Vector3d::UnitZ() };
+    Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };
 
     std::shared_ptr<SceneNode>             m_node;
     std::shared_ptr<SceneImageEffectLayer> m_imgEffect { nullptr };

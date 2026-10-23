@@ -91,6 +91,10 @@ void WPShaderValueUpdater::InitUniforms(SceneNode* pNode, const ExistsUniformOp&
     info.has_SCREEN           = existsOp(G_SCREEN);
     info.has_LP               = existsOp(G_LP);
     for (auto name : AudioUniforms) info.has_AUDIO = info.has_AUDIO || existsOp(name);
+    info.has_LCR         = existsOp(G_LCR);
+    info.has_LAMBIENT    = existsOp(G_LAMBIENT);
+    info.has_LSKYLIGHT   = existsOp(G_LSKYLIGHT);
+    info.has_EYEPOSITION = existsOp(G_EYEPOSITION);
     if (info.has_AUDIO && ! m_audio_acquired) {
         audio::AudioSpectrum::Get().Acquire();
         m_audio_acquired = true;
@@ -209,6 +213,24 @@ void WPShaderValueUpdater::UpdateUniforms(SceneNode* pNode, sprite_map_t& sprite
     // shadervs.push_back({"g_EffectTextureProjectionMatrixInverse",
     // ShaderValue::ValueOf(Eigen::Matrix4f::Identity())});
     if (info.has_TIME) updateOp(G_TIME, (float)m_scene->elapsingTime);
+
+    if (info.has_LAMBIENT) updateOp(G_LAMBIENT, m_scene->ambientColor);
+    if (info.has_LSKYLIGHT) updateOp(G_LSKYLIGHT, m_scene->skylightColor);
+    if (info.has_EYEPOSITION) {
+        const Vector3d eye = camera->GetPosition();
+        updateOp(G_EYEPOSITION, std::array { (float)eye.x(), (float)eye.y(), (float)eye.z() });
+    }
+    if (info.has_LCR) {
+        // vec4[4]: light color times intensity, and radius
+        std::array<float, 16> lights { 0 };
+        for (usize i = 0; i < std::min<usize>(4, m_scene->lights.size()); i++) {
+            const auto& l = *m_scene->lights[i];
+            const auto  c = l.color() * l.intensity();
+            lights[i * 4 + 0] = c.x(), lights[i * 4 + 1] = c.y(), lights[i * 4 + 2] = c.z();
+            lights[i * 4 + 3] = l.radius();
+        }
+        updateOp(G_LCR, lights);
+    }
 
     if (info.has_AUDIO) {
         for (usize i = 0; i < AudioUniforms.size(); i++)

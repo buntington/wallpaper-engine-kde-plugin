@@ -37,6 +37,11 @@ public:
     std::string                                         shader;
     std::string                                         depthtest { "disabled" };
     std::string                                         depthwrite { "disabled" };
+    // whether the material set them; 3D models use their own defaults otherwise
+    bool                                                hasBlending { false };
+    bool                                                hasCullmode { false };
+    bool                                                hasDepthtest { false };
+    bool                                                hasDepthwrite { false };
     std::vector<std::string>                            textures;
     std::unordered_map<std::string, int32_t>            combos;
     std::unordered_map<std::string, std::vector<float>> constantshadervalues;

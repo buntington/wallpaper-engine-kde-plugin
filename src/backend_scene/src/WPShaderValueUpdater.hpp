@@ -39,6 +39,11 @@ struct WPUniformInfo {
     bool has_SCREEN { false };
     bool has_LP { false };
     bool has_AUDIO { false };
+    // 3D lighting
+    bool has_LCR { false };
+    bool has_LAMBIENT { false };
+    bool has_LSKYLIGHT { false };
+    bool has_EYEPOSITION { false };
 
     struct Tex {
         bool has_resolution { false };

@@ -93,10 +93,13 @@ bool WPMaterial::FromJson(const nlohmann::json& json) {
         LOG_ERROR("material no shader");
         return false;
     }
-	GET_JSON_NAME_VALUE(jContent, "blending", blending);
-	GET_JSON_NAME_VALUE(jContent, "cullmode", cullmode);
-	GET_JSON_NAME_VALUE(jContent, "depthtest", depthtest);
-	GET_JSON_NAME_VALUE(jContent, "depthwrite", depthwrite);
+	hasBlending = GET_JSON_NAME_VALUE_NOWARN(jContent, "blending", blending);
+	// "depthtesting"/"depthwriting" are older spellings of the same settings.
+	hasCullmode   = GET_JSON_NAME_VALUE_NOWARN(jContent, "cullmode", cullmode);
+	hasDepthtest  = GET_JSON_NAME_VALUE_NOWARN(jContent, "depthtest", depthtest) ||
+	               GET_JSON_NAME_VALUE_NOWARN(jContent, "depthtesting", depthtest);
+	hasDepthwrite = GET_JSON_NAME_VALUE_NOWARN(jContent, "depthwrite", depthwrite) ||
+	                GET_JSON_NAME_VALUE_NOWARN(jContent, "depthwriting", depthwrite);
 	GET_JSON_NAME_VALUE(jContent, "shader", shader);
     if(jContent.contains("textures")) {
         for(const auto& jT:jContent.at("textures")) {

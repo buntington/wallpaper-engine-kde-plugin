@@ -494,9 +494,10 @@ void MainHandler::loadScene() {
             auto json = nlohmann::json::parse(scene_src, nullptr, false);
             if (! json.is_discarded()) {
                 auto props = parse(m_user_properties), texts = parse(m_text_values);
-                PreprocessSceneJson(json,
-                                    props.is_discarded() ? nlohmann::json::object() : props,
+                if (props.is_discarded()) props = nlohmann::json::object();
+                PreprocessSceneJson(json, props,
                                     texts.is_discarded() ? nlohmann::json::object() : texts);
+                m_scene_parser.SetUserProperties(props);
                 scene_src = json.dump();
             }
         }

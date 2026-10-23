@@ -35,6 +35,8 @@ constexpr std::string_view WE_IN_POSITION { "a_Position" };
 constexpr std::string_view WE_IN_TEXCOORD { "a_TexCoord" };
 constexpr std::string_view WE_IN_BLENDINDICES { "a_BlendIndices" };
 constexpr std::string_view WE_IN_BLENDWEIGHTS { "a_BlendWeights" };
+constexpr std::string_view WE_IN_NORMAL { "a_Normal" };
+constexpr std::string_view WE_IN_TANGENT4 { "a_Tangent4" };
 
 // particle
 
@@ -61,6 +63,10 @@ constexpr std::string_view G_ETVP { "g_EffectTextureProjectionMatrix" };
 constexpr std::string_view G_ETVPI { "g_EffectTextureProjectionMatrixInverse" };
 constexpr std::string_view G_LP { "g_LightsPosition" };
 constexpr std::string_view G_LCP { "g_LightsColorPremultiplied" };
+constexpr std::string_view G_LCR { "g_LightsColorRadius" };
+constexpr std::string_view G_LAMBIENT { "g_LightAmbientColor" };
+constexpr std::string_view G_LSKYLIGHT { "g_LightSkylightColor" };
+constexpr std::string_view G_EYEPOSITION { "g_EyePosition" };
 
 constexpr std::string_view G_TIME { "g_Time" };
 constexpr std::string_view G_DAYTIME { "g_DayTime" };

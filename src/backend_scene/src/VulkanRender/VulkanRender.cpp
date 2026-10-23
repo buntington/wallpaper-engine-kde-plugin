@@ -90,6 +90,7 @@ struct VulkanRender::Impl {
 
     std::unique_ptr<VulkanExSwapchain> m_ex_swapchain;
     RenderingResources                 m_rendering_resources;
+    std::unique_ptr<DepthTargets>      m_depth_targets;
 
     std::vector<VulkanPass*> m_passes;
 };
@@ -271,12 +272,57 @@ bool VulkanRender::Impl::CreateRenderingResource(RenderingResources& rr) {
         VVK_CHECK_BOOL_RE(m_device->handle().CreateSemaphore(ci, rr.sem_swap_wait_image));
     }
 
-    rr.vertex_buf = m_vertex_buf.get();
-    rr.dyn_buf    = m_dyn_buf.get();
+    rr.vertex_buf   = m_vertex_buf.get();
+    rr.dyn_buf      = m_dyn_buf.get();
+    m_depth_targets = std::make_unique<DepthTargets>(*m_device);
+    rr.depth        = m_depth_targets.get();
     return true;
 }
 
 void VulkanRender::Impl::DestroyRenderingResource(RenderingResources& rr) {}
+
+const VmaImageParameters* DepthTargets::Get(VkExtent3D extent) {
+    const auto key = std::make_pair(extent.width, extent.height);
+    if (auto it = m_images.find(key); it != m_images.end()) return &it->second;
+
+    VmaImageParameters image;
+    VkImageCreateInfo  info {
+         .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+         .pNext       = nullptr,
+         .imageType   = VK_IMAGE_TYPE_2D,
+         .format      = Format,
+         .extent      = VkExtent3D { extent.width, extent.height, 1 },
+         .mipLevels   = 1,
+         .arrayLayers = 1,
+         .samples     = VK_SAMPLE_COUNT_1_BIT,
+         .tiling      = VK_IMAGE_TILING_OPTIMAL,
+         .usage       = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+    VmaAllocationCreateInfo vma_info {};
+    vma_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    VVK_CHECK_ACT(return nullptr,
+                  vvk::CreateImage(m_device.vma_allocator(), info, vma_info, image.handle));
+    image.extent = info.extent;
+    VkImageViewCreateInfo view {
+        .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext    = nullptr,
+        .image    = *image.handle,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format   = Format,
+        .subresourceRange =
+            VkImageSubresourceRange {
+                .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .baseMipLevel   = 0,
+                .levelCount     = 1,
+                .baseArrayLayer = 0,
+                .layerCount     = 1,
+            },
+    };
+    VVK_CHECK_ACT(return nullptr, m_device.handle().CreateImageView(view, image.view));
+    return &(m_images[key] = std::move(image));
+}
 
 // VulkanExSwapchain* VulkanRender::exSwapchain() const { return m_ex_swapchain.get(); }
 
@@ -486,6 +532,12 @@ void VulkanRender::Impl::UpdateCameraFillMode(wallpaper::Scene&   scene,
     gCam.Update();
     gPerCam.Update();
     scene.UpdateLinkedCamera("global");
+
+    // 3D scenes keep their field of view and follow the output's aspect.
+    if (auto it = scene.cameras.find("scene_3d"); it != scene.cameras.end()) {
+        it->second->SetAspect(fboAspect);
+        it->second->Update();
+    }
 }
 
 void VulkanRender::Impl::clearLastRenderGraph() {
@@ -494,6 +546,7 @@ void VulkanRender::Impl::clearLastRenderGraph() {
     }
     m_passes.clear();
     m_device->tex_cache().Clear();
+    if (m_depth_targets) m_depth_targets->Clear();
 
     m_vertex_buf->destroy();
     m_dyn_buf->destroy();

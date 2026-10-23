@@ -22,8 +22,11 @@ uint8_t SceneVertexArray::TypeCount(VertexType t) {
     // packed types: number of 32-bit words
     case VertexType::SNORM8x4:
     case VertexType::UNORM8x4:
-    case VertexType::HALF2: return 1;
-    case VertexType::HALF4: return 2;
+    case VertexType::HALF2:
+    case VertexType::UNORM16x2: return 1;
+    case VertexType::HALF4:
+    case VertexType::SNORM16x4:
+    case VertexType::UNORM16x4: return 2;
     }
     return 1;
 }
@@ -133,6 +136,20 @@ void SceneVertexArray::PackAttribute(VertexType type, std::span<const float> dat
                 v[i] = (uint8_t)std::lround(std::clamp(at(i), 0.0f, 1.0f) * 255.0f);
         }
         std::memcpy(dst, v.data(), 4);
+        break;
+    }
+    case VertexType::SNORM16x4:
+    case VertexType::UNORM16x2:
+    case VertexType::UNORM16x4: {
+        std::array<uint16_t, 4> v {};
+        const usize             n = type == VertexType::UNORM16x2 ? 2 : 4;
+        for (usize i = 0; i < n; i++) {
+            if (type == VertexType::SNORM16x4)
+                v[i] = (uint16_t)(int16_t)std::lround(std::clamp(at(i), -1.0f, 1.0f) * 32767.0f);
+            else
+                v[i] = (uint16_t)std::lround(std::clamp(at(i), 0.0f, 1.0f) * 65535.0f);
+        }
+        std::memcpy(dst, v.data(), n * sizeof(uint16_t));
         break;
     }
     case VertexType::HALF2:

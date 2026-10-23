@@ -19,10 +19,8 @@ struct SceneMaterial {
 public:
     SceneMaterial()                     = default;
     SceneMaterial(const SceneMaterial&) = default;
-    SceneMaterial(SceneMaterial&& o)
-        : name(std::move(o.name)),
-          textures(std::move(o.textures)),
-          defines(std::move(o.defines)) {};
+    // Moves every member (a hand-written version dropped the shader and blend mode).
+    SceneMaterial(SceneMaterial&&) = default;
 
     std::string              name;
     std::vector<std::string> textures;
@@ -32,5 +30,10 @@ public:
 
     SceneMaterialCustomShader customShader;
     BlendMode                 blenmode { BlendMode::Disable };
+
+    // depth and culling, used by 3D model meshes
+    bool depthTest { false };
+    bool depthWrite { false };
+    bool cullBack { false };
 };
 } // namespace wallpaper

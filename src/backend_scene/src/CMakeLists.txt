@@ -51,6 +51,7 @@ add_library(
   WPMdlParser.cpp
   WPPuppet.cpp
   WPSceneJson.cpp
+  WPModelParser.cpp
   SceneWallpaper.cpp)
 
 set(InteralLib

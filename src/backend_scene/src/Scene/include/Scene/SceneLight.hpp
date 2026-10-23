@@ -18,6 +18,7 @@ public:
 
     Eigen::Vector3f color() const { return m_color; }
     float           radius() const { return m_radius; }
+    float           intensity() const { return m_intensity; }
     SceneNode*      node() const { return m_node.get(); }
 
     Eigen::Vector3f premultipliedColor() const { return m_premultiplied_color; }

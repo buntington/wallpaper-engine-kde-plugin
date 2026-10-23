@@ -94,6 +94,7 @@ struct ExtraInfo {
     rg::RenderGraph*           rgraph { nullptr };
     Scene*                     scene { nullptr };
     bool                       use_mipmap_framebuffer { false };
+    Set<std::string>           depth_cleared {}; // outputs whose depth image is cleared
 };
 
 static void ToGraphPass(SceneNode* node, std::string_view output, i32 imgId, ExtraInfo& extra) {
@@ -146,6 +147,11 @@ static void ToGraphPass(SceneNode* node, std::string_view output, i32 imgId, Ext
             const auto& pass = builder.workPassNode();
             pdesc.node       = node;
             pdesc.output     = output;
+            // 3D model passes test and write depth; the first per output clears it.
+            if (node->Camera() == "scene_3d") {
+                pdesc.depth       = true;
+                pdesc.depth_clear = extra.depth_cleared.insert(std::string(output)).second;
+            }
             CheckAndSetSprite(scene, pdesc, material->textures);
             for (usize i = 0; i < material->textures.size(); i++) {
                 const auto&  url = material->textures[i];

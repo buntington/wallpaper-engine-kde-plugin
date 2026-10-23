@@ -15,10 +15,11 @@ Matrix4d inline LookAt(Vector3d eye, Vector3d center, Vector3d up) noexcept {
     Vector3d yAxis = zAxis.cross(xAxis).normalized();
 
     Affine3d trans = Affine3d::Identity();
-    // base change
-    trans.linear().col(0) = xAxis;
-    trans.linear().col(1) = yAxis;
-    trans.linear().col(2) = zAxis;
+    // base change: world to camera space, so the camera axes are the rows
+    // (columns only worked for axis-aligned cameras, where both are the same)
+    trans.linear().row(0) = xAxis;
+    trans.linear().row(1) = yAxis;
+    trans.linear().row(2) = zAxis;
 
     // translate
     trans *= Translation3d(-eye);
