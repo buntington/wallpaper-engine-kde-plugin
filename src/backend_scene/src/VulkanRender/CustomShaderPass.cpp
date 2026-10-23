@@ -210,10 +210,23 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
                 auto& input  = item.second;
                 usize offset = exists(attrs_map, name) ? attrs_map[name].offset : 0;
 
+                // Packed attributes keep their compact format; the GPU expands them to
+                // the float type the shader declares.
+                VkFormat format = input.format;
+                if (exists(attrs_map, name)) {
+                    switch (attrs_map[name].attr.type) {
+                    case VertexType::SNORM8x4: format = VK_FORMAT_R8G8B8A8_SNORM; break;
+                    case VertexType::UNORM8x4: format = VK_FORMAT_R8G8B8A8_UNORM; break;
+                    case VertexType::HALF2: format = VK_FORMAT_R16G16_SFLOAT; break;
+                    case VertexType::HALF4: format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+                    default: break;
+                    }
+                }
+
                 VkVertexInputAttributeDescription attr_desc {
                     .location = input.location,
                     .binding  = i,
-                    .format   = input.format,
+                    .format   = format,
                     .offset   = (u32)offset,
                 };
                 attr_descriptions.push_back(attr_desc);

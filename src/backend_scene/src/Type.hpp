@@ -118,7 +118,12 @@ enum class VertexType
     UINT1,
     UINT2,
     UINT3,
-    UINT4
+    UINT4,
+    // Packed into 32-bit words; the GPU expands them to floats for the shader.
+    SNORM8x4, // 4 bytes, components in [-1, 1] (normals, tangents)
+    UNORM8x4, // 4 bytes, components in [0, 1] (colors)
+    HALF2,    // 4 bytes, two 16-bit floats (texture coordinates)
+    HALF4     // 8 bytes, four 16-bit floats
 };
 
 } // namespace wallpaper

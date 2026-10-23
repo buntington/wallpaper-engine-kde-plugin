@@ -103,15 +103,17 @@ void GenCardMesh(SceneMesh& mesh, const std::array<uint16_t, 2> size,
 void SetParticleMesh(SceneMesh& mesh, const wpscene::Particle& particle, uint32_t count,
                      bool thick_format) {
     (void)particle;
+    // Rewritten every frame, so kept compact: 32 bytes a vertex instead of 64
+    // (velocity and lifetime stay full floats).
     std::vector<SceneVertexArray::SceneVertexAttribute> attrs {
-        { WE_IN_POSITION.data(), VertexType::FLOAT3 },
-        { WE_IN_TEXCOORDVEC4.data(), VertexType::FLOAT4 },
-        { WE_IN_COLOR.data(), VertexType::FLOAT4 },
+        { WE_IN_POSITION.data(), VertexType::FLOAT3, false },
+        { WE_IN_TEXCOORDVEC4.data(), VertexType::HALF4, false },
+        { WE_IN_COLOR.data(), VertexType::HALF4, false },
     };
     if (thick_format) {
-        attrs.push_back({ WE_IN_TEXCOORDVEC4C1.data(), VertexType::FLOAT4 });
+        attrs.push_back({ WE_IN_TEXCOORDVEC4C1.data(), VertexType::FLOAT4, false });
     }
-    attrs.push_back({ WE_IN_TEXCOORDC2.data(), VertexType::FLOAT2 });
+    attrs.push_back({ WE_IN_TEXCOORDC2.data(), VertexType::HALF2, false });
     mesh.AddVertexArray(SceneVertexArray(attrs, count * 4));
     mesh.AddIndexArray(SceneIndexArray(count));
     mesh.GetVertexArray(0).SetOption(WE_CB_THICK_FORMAT, thick_format);

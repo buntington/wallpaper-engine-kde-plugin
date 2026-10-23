@@ -39,13 +39,25 @@ inline void AssignVertex(std::span<float> dst, std::span<const float> src, uint 
 inline usize GenParticleData(std::span<const std::unique_ptr<ParticleInstance>> instances,
                              const ParticleRawGenSpecOp& specOp, WPGOption opt,
                              SceneVertexArray& sv) noexcept {
-    std::array<float, 32 * 4> storage;
+    // Attribute positions in 32-bit words; the mesh packs some attributes (see SetParticleMesh).
+    struct Attr {
+        usize      word { 0 };
+        VertexType type { VertexType::FLOAT4 };
+    };
+    const auto offsets = sv.GetAttrOffsetMap();
+    const auto attr    = [&offsets](std::string_view name) {
+        auto it = offsets.find(std::string(name));
+        return it == offsets.end() ? Attr {}
+                                      : Attr { it->second.offset / sizeof(float), it->second.attr.type };
+    };
+    const Attr a_pos = attr(WE_IN_POSITION), a_tex = attr(WE_IN_TEXCOORDVEC4),
+               a_color = attr(WE_IN_COLOR), a_thick = attr(WE_IN_TEXCOORDVEC4C1),
+               a_rot = attr(WE_IN_TEXCOORDC2);
+    const auto set = [&sv](usize v, const Attr& a, std::span<const float> data) {
+        sv.SetAttribute(v, a.word, a.type, data);
+    };
 
-    float* data = storage.data();
-
-    const auto one_size   = sv.OneSize();
-    const auto totle_size = 4 * one_size;
-    usize      i { 0 };
+    usize i { 0 };
     for (const auto& inst : instances) {
         if (inst->IsNoLiveParticle()) continue;
 
@@ -59,38 +71,24 @@ inline usize GenParticleData(std::span<const std::unique_ptr<ParticleInstance>> 
 
             auto  pos  = inst->GetBoundedData().pos + p.position;
             float size = p.size / 2.0f;
+            float rz   = p.rotation[2];
 
-            usize offset = 0;
+            const std::array position { pos[0], pos[1], pos[2] };
+            const std::array color { p.color[0], p.color[1], p.color[2], p.alpha };
+            const std::array velocity { p.velocity[0], p.velocity[1], p.velocity[2], lifetime };
+            const std::array rotation { p.rotation[0], p.rotation[1] };
+            // corner texture coordinates of the quad
+            const std::array<std::array<float, 2>, 4> uv { { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } } };
 
-            // pos
-            AssignVertexTimes(
-                { data + offset, totle_size }, std::array { pos[0], pos[1], pos[2] }, 4);
-            offset += 4;
-            // TexCoordVec4
-            float      rz = p.rotation[2];
-            std::array t { 0.0f, 1.0f, rz, size, 1.0f, 1.0f, rz, size,
-                           1.0f, 0.0f, rz, size, 0.0f, 0.0f, rz, size };
-            AssignVertex({ data + offset, totle_size }, t, 4);
-            offset += 4;
-
-            // color
-            AssignVertexTimes({ data + offset, totle_size },
-                              std::array { p.color[0], p.color[1], p.color[2], p.alpha },
-                              4);
-            offset += 4;
-
-            if (opt.thick_format) {
-                AssignVertexTimes(
-                    { data + offset, totle_size },
-                    std::array { p.velocity[0], p.velocity[1], p.velocity[2], lifetime },
-                    4);
-                offset += 4;
+            for (usize k = 0; k < 4; k++) {
+                const usize v = i * 4 + k;
+                set(v, a_pos, position);
+                set(v, a_tex, std::array { uv[k][0], uv[k][1], rz, size });
+                set(v, a_color, color);
+                if (opt.thick_format) set(v, a_thick, velocity);
+                set(v, a_rot, rotation);
             }
-            // TexCoordC2
-            AssignVertexTimes(
-                { data + offset, totle_size }, std::array { p.rotation[0], p.rotation[1] }, 4);
-
-            sv.SetVertexs((i++) * 4, { data, totle_size });
+            i++;
         }
     }
     return i;

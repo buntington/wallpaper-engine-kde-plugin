@@ -34,6 +34,12 @@ public:
     bool AddVertex(const float*);
     bool SetVertex(std::string_view name, std::span<const float> data) noexcept;
     bool SetVertexs(std::size_t index, std::span<const float> data) noexcept;
+    // Writes one attribute of one vertex, converting the floats to the attribute's
+    // type (packed types are stored compactly). word_offset is in 32-bit words.
+    bool SetAttribute(std::size_t vertex, std::size_t word_offset, VertexType type,
+                      std::span<const float> data) noexcept;
+    static void     PackAttribute(VertexType, std::span<const float> data, float* dst) noexcept;
+    static uint16_t ToHalf(float) noexcept;
 
     bool GetOption(std::string_view) const;
     void SetOption(std::string_view, bool);
