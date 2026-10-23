@@ -3,6 +3,8 @@ set(LIB_NAME wpAudio)
 add_library(${LIB_NAME}
     STATIC
     SoundManager.cpp
+    AudioSpectrum.cpp
+    miniaudio-impl.cpp
 )
 
 target_link_libraries(${LIB_NAME}

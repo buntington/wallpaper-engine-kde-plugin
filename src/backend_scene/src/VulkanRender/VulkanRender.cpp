@@ -3,6 +3,7 @@
 #include "Utils/Logging.h"
 #include "RenderGraph/RenderGraph.hpp"
 #include "Scene/Scene.h"
+#include "Text/TextLayers.hpp"
 #include "Interface/IShaderValueUpdater.h"
 
 #include "Utils/Algorism.h"
@@ -281,6 +282,12 @@ void VulkanRender::Impl::DestroyRenderingResource(RenderingResources& rr) {}
 
 void VulkanRender::Impl::drawFrame(Scene& scene) {
     if (! (m_inited && m_pass_loaded)) return;
+
+    if (scene.textLayers) {
+        scene.textLayers->TakeDirty([this](Image& image) {
+            m_device->tex_cache().UpdateTex(image);
+        });
+    }
 
         // LOG_INFO("used ram: %fm", (m_device->GetUsage()/1024.0f)/1024.0f);
 

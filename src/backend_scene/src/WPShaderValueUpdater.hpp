@@ -38,6 +38,7 @@ struct WPUniformInfo {
     bool has_TEXELSIZEHALF { false };
     bool has_SCREEN { false };
     bool has_LP { false };
+    bool has_AUDIO { false };
 
     struct Tex {
         bool has_resolution { false };
@@ -64,7 +65,7 @@ struct WPCameraParallax {
 class WPShaderValueUpdater : public IShaderValueUpdater {
 public:
     WPShaderValueUpdater(Scene* scene): m_scene(scene) {}
-    virtual ~WPShaderValueUpdater() {}
+    virtual ~WPShaderValueUpdater();
 
     void FrameBegin() override;
 
@@ -96,5 +97,9 @@ private:
 
     Map<void*, WPShaderValueData> m_nodeDataMap;
     Map<void*, WPUniformInfo>     m_nodeUniformInfoMap;
+
+    // g_AudioSpectrum{16,32,64}{Left,Right}, read once per frame while captured
+    bool                                   m_audio_acquired { false };
+    std::array<std::array<float, 64>, 6> m_audio {};
 };
 } // namespace wallpaper

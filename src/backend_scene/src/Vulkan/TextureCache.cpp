@@ -501,6 +501,46 @@ ImageSlotsRef TextureCache::CreateTex(Image& image) {
     return m_tex_map[image.key];
 }
 
+bool TextureCache::UpdateTex(Image& image) {
+    if (! exists(m_tex_map, image.key)) return false;
+    auto& img_slots = m_tex_map.at(image.key);
+    if (img_slots.slots.size() != image.slots.size()) return false;
+    if (! m_tex_cmd) allocateCmd();
+
+    for (usize i = 0; i < image.slots.size(); i++) {
+        auto& image_paras = img_slots.slots[i];
+        auto& image_slot  = image.slots[i];
+        if (! image_slot || image_paras.extent.width != (u32)image_slot.width ||
+            image_paras.extent.height != (u32)image_slot.height)
+            return false;
+
+        std::vector<VmaBufferParameters> stage_bufs;
+        std::vector<VkExtent3D>          extents;
+        for (auto& image_data : image_slot.mipmaps) {
+            VmaBufferParameters buf;
+            (void)CreateStagingBuffer(m_device.vma_allocator(), (u32)image_data.size, buf);
+            {
+                void* v_data;
+                VVK_CHECK(buf.handle.MapMemory(&v_data));
+                memcpy(v_data, image_data.data.get(), (u32)image_data.size);
+                buf.handle.UnMapMemory();
+            }
+            stage_bufs.emplace_back(std::move(buf));
+            extents.push_back(VkExtent3D { (u32)image_data.width, (u32)image_data.height, 1 });
+        }
+        CopyImageData(transform<VmaBufferParameters>(stage_bufs,
+                                                     [](BufferParameters e) {
+                                                         return e;
+                                                     }),
+                      extents,
+                      m_device.graphics_queue().handle,
+                      m_tex_cmd,
+                      image_paras);
+        m_device.handle().WaitIdle();
+    }
+    return true;
+}
+
 void TextureCache::allocateCmd() {
     const auto& pool = m_device.cmd_pool();
     VVK_CHECK(pool.Allocate(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY, m_tex_cmds));

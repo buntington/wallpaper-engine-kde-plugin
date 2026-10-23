@@ -22,6 +22,11 @@ class SceneObject : public QQuickItem {
     Q_PROPERTY(float speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(float volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted)
+    // Wallpaper Engine user property values (name -> value); changing them reloads the scene.
+    Q_PROPERTY(QVariantMap userProperties READ userProperties WRITE setUserProperties NOTIFY
+                   userPropertiesChanged)
+    // Initial text of text objects (object id -> text), used when the scene loads.
+    Q_PROPERTY(QVariantMap textValues READ textValues WRITE setTextValues)
 public:
     constexpr static std::string_view CACHE_DIR { "wescene-renderer" };
     static std::string                GetDefaultCachePath();
@@ -51,6 +56,11 @@ public:
     void setVolume(float);
     void setMuted(bool);
 
+    QVariantMap userProperties() const;
+    QVariantMap textValues() const;
+    void        setUserProperties(const QVariantMap&);
+    void        setTextValues(const QVariantMap&);
+
     // debug
     bool vulkanValid() const;
     void enableVulkanValid();
@@ -58,6 +68,12 @@ public:
 
     Q_INVOKABLE void setAcceptMouse(bool);
     Q_INVOKABLE void setAcceptHover(bool);
+    // Changes the text of a running text object.
+    Q_INVOKABLE void setLayerText(int id, const QString& text);
+    // Audio spectrum for scripts: capture runs while enabled.
+    Q_INVOKABLE void setAudioCapture(bool);
+    // 16, 32 or 64 values for the left channel followed by as many for the right.
+    Q_INVOKABLE QVariantList audioSpectrum(int bands) const;
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -75,6 +91,7 @@ signals:
     void fillModeChanged();
     void speedChanged();
     void volumeChanged();
+    void userPropertiesChanged();
     void firstFrame();
 
 private:
@@ -86,6 +103,10 @@ private:
     float m_speed { 1.0f };
     float m_volume { 1.0f };
     bool  m_muted { false };
+
+    QVariantMap m_user_properties;
+    QVariantMap m_text_values;
+    bool        m_audio_capture { false };
 
 public:
     static void on_update(void* ctx);

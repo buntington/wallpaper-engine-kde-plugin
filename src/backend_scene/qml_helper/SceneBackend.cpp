@@ -4,6 +4,8 @@
 #include <QtCore/QObject>
 #include <QtCore/QDir>
 #include <QtCore/QThread>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QOpenGLContext>
@@ -17,6 +19,7 @@
 
 #include <clocale>
 #include <atomic>
+#include <mutex>
 #include <array>
 #include <functional>
 
@@ -88,9 +91,14 @@ public:
         setTexture(m_texture);
         setFiltering(QSGTexture::Linear);
         setOwnsTexture(false);
+        m_guard->node = this;
     }
 
     ~TextureNode() override {
+        {
+            std::lock_guard lock(m_guard->mutex);
+            m_guard->node = nullptr;
+        }
         for (auto& item : texs_map) {
             auto& exh = item.second;
             // close(exh.fd);
@@ -114,13 +122,18 @@ public:
         info.uuid               = m_glex.uuid();
         info.width              = w;
         info.height             = h;
-        info.redraw_callback    = [this]() {
-            Q_EMIT this->redraw();
+        // The render thread calls these; the guard keeps them from reaching a
+        // node that Qt has already destroyed.
+        info.redraw_callback    = [guard = m_guard]() {
+            std::lock_guard lock(guard->mutex);
+            if (guard->node) Q_EMIT guard->node->redraw();
         };
 
-        auto cb = std::make_shared<wallpaper::FirstFrameCallback>([this]() {
-            m_first_frame = true;
-            Q_EMIT this->redraw();
+        auto cb = std::make_shared<wallpaper::FirstFrameCallback>([guard = m_guard]() {
+            std::lock_guard lock(guard->mutex);
+            if (! guard->node) return;
+            guard->node->m_first_frame = true;
+            Q_EMIT guard->node->redraw();
         });
         m_scene->setPropertyObject(wallpaper::PROPERTY_FIRST_FRAME_CALLBACK, cb);
         // this send to looper, not in this thread
@@ -182,6 +195,12 @@ private:
     QQuickWindow*     m_window;
     std::atomic<bool> m_first_frame;
 
+    struct CallbackGuard {
+        std::mutex   mutex;
+        TextureNode* node { nullptr };
+    };
+    std::shared_ptr<CallbackGuard> m_guard { std::make_shared<CallbackGuard>() };
+
     GlExtra m_glex;
 
     struct ExTex {
@@ -201,7 +220,10 @@ SceneObject::SceneObject(QQuickItem* parent)
     m_scene->setPropertyString(wallpaper::PROPERTY_CACHE_PATH, GetDefaultCachePath());
 }
 
-SceneObject::~SceneObject() { _Q_INFO("Destroy sceneobject", ""); }
+SceneObject::~SceneObject() {
+    _Q_INFO("Destroy sceneobject", "");
+    setAudioCapture(false);
+}
 
 void SceneObject::resizeFb() {
     QSize size;
@@ -291,6 +313,44 @@ void SceneObject::setMuted(bool value) {
     if (m_muted == value) return;
     m_muted = value;
     SET_PROPERTY(Bool, wallpaper::PROPERTY_MUTED, value);
+}
+
+QVariantMap SceneObject::userProperties() const { return m_user_properties; }
+QVariantMap SceneObject::textValues() const { return m_text_values; }
+
+void SceneObject::setUserProperties(const QVariantMap& value) {
+    if (m_user_properties == value) return;
+    m_user_properties = value;
+    const auto json   = QJsonDocument(QJsonObject::fromVariantMap(value)).toJson(QJsonDocument::Compact);
+    SET_PROPERTY(String, wallpaper::PROPERTY_USER_PROPERTIES, json.toStdString());
+    Q_EMIT userPropertiesChanged();
+}
+void SceneObject::setTextValues(const QVariantMap& value) {
+    m_text_values   = value;
+    const auto json = QJsonDocument(QJsonObject::fromVariantMap(value)).toJson(QJsonDocument::Compact);
+    SET_PROPERTY(String, wallpaper::PROPERTY_TEXT_VALUES, json.toStdString());
+}
+void SceneObject::setLayerText(int id, const QString& text) {
+    SET_PROPERTY(String,
+                 wallpaper::PROPERTY_LAYER_TEXT,
+                 std::to_string(id) + '\x1f' + text.toStdString());
+}
+
+void SceneObject::setAudioCapture(bool value) {
+    if (m_audio_capture == value) return;
+    m_audio_capture = value;
+    if (value) wallpaper::SceneWallpaper::AcquireAudioSpectrum();
+    else wallpaper::SceneWallpaper::ReleaseAudioSpectrum();
+}
+QVariantList SceneObject::audioSpectrum(int bands) const {
+    bands = bands >= 64 ? 64 : bands >= 32 ? 32 : 16;
+    std::array<float, 64> left {}, right {};
+    wallpaper::SceneWallpaper::ReadAudioSpectrum(bands, left.data(), right.data());
+    QVariantList out;
+    out.reserve(bands * 2);
+    for (int i = 0; i < bands; i++) out.append(left[(size_t)i]);
+    for (int i = 0; i < bands; i++) out.append(right[(size_t)i]);
+    return out;
 }
 
 void SceneObject::play() { m_scene->play(); }

@@ -14,6 +14,7 @@
 #include "WPParticleParser.hpp"
 #include "WPSoundParser.hpp"
 #include "WPMdlParser.hpp"
+#include "Text/TextLayers.hpp"
 
 #include "Particle/WPParticleRawGener.h"
 #include "Particle/ParticleSystem.h"
@@ -1089,6 +1090,94 @@ void AddWPObject(std::vector<WPObjectVar>& objs, const nlohmann::json& json_obj,
     if (! wpobj.visible) return;
     objs.push_back(wpobj);
 }
+
+// A text object becomes an image object whose texture is the rendered text, so
+// effects, draw order, color and alpha go through the regular image path.
+void AddTextObject(std::vector<WPObjectVar>& objs, const nlohmann::json& json, fs::VFS& vfs,
+                   TextLayers& texts) {
+    wpscene::WPImageObject obj;
+    obj.isText    = true;
+    obj.nopadding = true;
+    GET_JSON_NAME_VALUE_NOWARN(json, "visible", obj.visible);
+    if (! obj.visible) return;
+    GET_JSON_NAME_VALUE_NOWARN(json, "name", obj.name);
+    GET_JSON_NAME_VALUE_NOWARN(json, "id", obj.id);
+    GET_JSON_NAME_VALUE_NOWARN(json, "origin", obj.origin);
+    GET_JSON_NAME_VALUE_NOWARN(json, "angles", obj.angles);
+    GET_JSON_NAME_VALUE_NOWARN(json, "scale", obj.scale);
+    GET_JSON_NAME_VALUE_NOWARN(json, "parallaxDepth", obj.parallaxDepth);
+    GET_JSON_NAME_VALUE_NOWARN(json, "color", obj.color);
+    GET_JSON_NAME_VALUE_NOWARN(json, "alpha", obj.alpha);
+    GET_JSON_NAME_VALUE_NOWARN(json, "brightness", obj.brightness);
+    GET_JSON_NAME_VALUE_NOWARN(json, "colorBlendMode", obj.colorBlendMode);
+
+    TextStyle style;
+    GET_JSON_NAME_VALUE_NOWARN(json, "pointsize", style.pointsize);
+    GET_JSON_NAME_VALUE_NOWARN(json, "size", style.size);
+    GET_JSON_NAME_VALUE_NOWARN(json, "padding", style.padding);
+    GET_JSON_NAME_VALUE_NOWARN(json, "horizontalalign", style.halign);
+    GET_JSON_NAME_VALUE_NOWARN(json, "verticalalign", style.valign);
+    GET_JSON_NAME_VALUE_NOWARN(json, "limitwidth", style.limitwidth);
+    GET_JSON_NAME_VALUE_NOWARN(json, "maxwidth", style.maxwidth);
+    GET_JSON_NAME_VALUE_NOWARN(json, "limitrows", style.limitrows);
+    GET_JSON_NAME_VALUE_NOWARN(json, "maxrows", style.maxrows);
+    GET_JSON_NAME_VALUE_NOWARN(json, "opaquebackground", style.opaquebackground);
+    GET_JSON_NAME_VALUE_NOWARN(json, "backgroundcolor", style.backgroundcolor);
+    GET_JSON_NAME_VALUE_NOWARN(json, "backgroundbrightness", style.backgroundbrightness);
+
+    std::string font;
+    GET_JSON_NAME_VALUE_NOWARN(json, "font", font);
+    if (sstart_with(font, "systemfont_")) {
+        style.systemFont = font.substr(11);
+        std::replace(style.systemFont.begin(), style.systemFont.end(), '_', ' ');
+    } else if (! font.empty()) {
+        const std::string data = fs::GetFileContent(vfs, "/assets/" + font);
+        if (data.empty()) LOG_ERROR("text '%s': font not found: %s", obj.name.c_str(), font.c_str());
+        style.font.assign(data.begin(), data.end());
+    }
+
+    std::string text;
+    const auto& jText = json.at("text");
+    if (jText.is_string()) text = jText.get<std::string>();
+    else if (jText.is_object() && jText.contains("value") && jText.at("value").is_string())
+        text = jText.at("value").get<std::string>();
+
+    const std::string halign = style.halign, valign = style.valign;
+    std::array<float, 2> size {};
+    const std::string    tex = texts.Add(obj.id, std::move(style), text, size);
+    obj.size                 = size;
+
+    // Put the alignment edge of the layer on the origin.
+    {
+        const float dx  = halign == "left" ? size[0] / 2 : halign == "right" ? -size[0] / 2 : 0.0f;
+        const float dy  = valign == "top" ? -size[1] / 2 : valign == "bottom" ? size[1] / 2 : 0.0f;
+        const float lx  = dx * obj.scale[0], ly = dy * obj.scale[1];
+        const float cos = std::cos(obj.angles[2]), sin = std::sin(obj.angles[2]);
+        obj.origin[0] += cos * lx - sin * ly;
+        obj.origin[1] += sin * lx + cos * ly;
+    }
+
+    const nlohmann::json jMat = {
+        { "passes",
+          { { { "blending", "translucent" },
+              { "combos", { { "LIGHTING", 0 }, { "VERSION", 2 } } },
+              { "cullmode", "nocull" },
+              { "depthtest", "disabled" },
+              { "depthwrite", "disabled" },
+              { "shader", "genericimage2" },
+              { "textures", { tex } } } } }
+    };
+    obj.material.FromJson(jMat);
+
+    if (json.contains("effects")) {
+        for (const auto& jE : json.at("effects")) {
+            wpscene::WPImageEffect wpeff;
+            wpeff.FromJson(jE, vfs);
+            obj.effects.push_back(std::move(wpeff));
+        }
+    }
+    objs.push_back(obj);
+}
 } // namespace
 
 std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std::string& buf,
@@ -1102,10 +1191,13 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
     ParseContext context;
 
     std::vector<WPObjectVar> wp_objs;
+    auto                     texts = std::make_shared<TextLayers>();
 
     for (auto& obj : json.at("objects")) {
         if (obj.contains("image") && ! obj.at("image").is_null()) {
             AddWPObject<wpscene::WPImageObject>(wp_objs, obj, vfs);
+        } else if (obj.contains("text") && ! obj.at("text").is_null()) {
+            AddTextObject(wp_objs, obj, vfs, *texts);
         } else if (obj.contains("particle") && ! obj.at("particle").is_null()) {
             AddWPObject<wpscene::WPParticleObject>(wp_objs, obj, vfs);
         } else if (obj.contains("sound") && ! obj.at("sound").is_null()) {
@@ -1119,7 +1211,7 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
         i32 w = 0, h = 0;
         for (auto& obj : wp_objs) {
             auto* img = std::get_if<wpscene::WPImageObject>(&obj);
-            if (img == nullptr) continue;
+            if (img == nullptr || img->isText) continue;
             i32 size = (i32)(img->size.at(0) * img->size.at(1));
             if (size > w * h) {
                 w = (i32)img->size.at(0);
@@ -1131,6 +1223,9 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
     }
 
     InitContext(context, vfs, sc);
+    context.scene->textLayers  = texts;
+    context.scene->imageParser = std::make_unique<TextImageParser>(
+        std::move(context.scene->imageParser), texts);
     ParseCamera(context, sc.general);
 
     {

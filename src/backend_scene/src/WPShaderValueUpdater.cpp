@@ -6,6 +6,7 @@
 #include "SpecTexs.hpp"
 #include "Core/ArrayHelper.hpp"
 #include "Utils/Algorism.h"
+#include "Audio/AudioSpectrum.hpp"
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -17,7 +18,24 @@
 using namespace wallpaper;
 using namespace Eigen;
 
+namespace
+{
+constexpr std::array<std::string_view, 6> AudioUniforms {
+    "g_AudioSpectrum16Left", "g_AudioSpectrum16Right", "g_AudioSpectrum32Left",
+    "g_AudioSpectrum32Right", "g_AudioSpectrum64Left", "g_AudioSpectrum64Right",
+};
+} // namespace
+
+WPShaderValueUpdater::~WPShaderValueUpdater() {
+    if (m_audio_acquired) audio::AudioSpectrum::Get().Release();
+}
+
 void WPShaderValueUpdater::FrameBegin() {
+    if (m_audio_acquired) {
+        auto& spectrum = audio::AudioSpectrum::Get();
+        for (usize i = 0; i < 3; i++)
+            spectrum.Read(16 << i, m_audio[i * 2].data(), m_audio[i * 2 + 1].data());
+    }
     /*
         using namespace std::chrono;
         auto nowTime = system_clock::to_time_t(system_clock::now());
@@ -72,6 +90,11 @@ void WPShaderValueUpdater::InitUniforms(SceneNode* pNode, const ExistsUniformOp&
     info.has_TEXELSIZEHALF    = existsOp(G_TEXELSIZEHALF);
     info.has_SCREEN           = existsOp(G_SCREEN);
     info.has_LP               = existsOp(G_LP);
+    for (auto name : AudioUniforms) info.has_AUDIO = info.has_AUDIO || existsOp(name);
+    if (info.has_AUDIO && ! m_audio_acquired) {
+        audio::AudioSpectrum::Get().Acquire();
+        m_audio_acquired = true;
+    }
 
     std::accumulate(begin(info.texs), end(info.texs), 0, [&existsOp](uint index, auto& value) {
         value.has_resolution = existsOp(WE_GLTEX_RESOLUTION_NAMES[index]);
@@ -186,6 +209,11 @@ void WPShaderValueUpdater::UpdateUniforms(SceneNode* pNode, sprite_map_t& sprite
     // shadervs.push_back({"g_EffectTextureProjectionMatrixInverse",
     // ShaderValue::ValueOf(Eigen::Matrix4f::Identity())});
     if (info.has_TIME) updateOp(G_TIME, (float)m_scene->elapsingTime);
+
+    if (info.has_AUDIO) {
+        for (usize i = 0; i < AudioUniforms.size(); i++)
+            updateOp(AudioUniforms[i], std::span<const float> { m_audio[i].data(), (usize)16 << (i / 2) });
+    }
 
     if (info.has_DAYTIME) updateOp(G_DAYTIME, (float)m_dayTime);
 

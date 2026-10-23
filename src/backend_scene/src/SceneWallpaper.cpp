@@ -7,6 +7,8 @@
 #include "Timer/FrameTimer.hpp"
 #include "Utils/FpsCounter.h"
 #include "WPSceneParser.hpp"
+#include "WPSceneJson.hpp"
+#include "Text/TextLayers.hpp"
 #include "Scene/Scene.h"
 #include "Particle/ParticleSystem.h"
 #include "Interface/IShaderValueUpdater.h"
@@ -16,12 +18,14 @@
 #include "WPPkgFs.hpp"
 
 #include "Audio/SoundManager.h"
+#include "Audio/AudioSpectrum.hpp"
 
 #include "RenderGraph/RenderGraph.hpp"
 
 #include "VulkanRender/SceneToRenderGraph.hpp"
 #include "VulkanRender/VulkanRender.hpp"
 #include <atomic>
+#include <filesystem>
 
 using namespace wallpaper;
 
@@ -105,9 +109,12 @@ private:
     std::string m_assets;
     std::string m_source;
     std::string m_cache_path;
+    std::string m_user_properties; // JSON object: property name -> value
+    std::string m_text_values;     // JSON object: text object id -> text
     bool        m_gen_graphviz { false };
 
     WPSceneParser                        m_scene_parser;
+    std::shared_ptr<TextLayers>          m_text_layers;
     std::unique_ptr<audio::SoundManager> m_sound_manager;
     FirstFrameCallback                   m_first_frame_callback;
 
@@ -301,6 +308,12 @@ BASIC_TYPE(Float, float);
 BASIC_TYPE(String, std::string);
 BASIC_TYPE(Object, std::shared_ptr<void>);
 
+void SceneWallpaper::AcquireAudioSpectrum() { audio::AudioSpectrum::Get().Acquire(); }
+void SceneWallpaper::ReleaseAudioSpectrum() { audio::AudioSpectrum::Get().Release(); }
+void SceneWallpaper::ReadAudioSpectrum(int bands, float* left, float* right) {
+    audio::AudioSpectrum::Get().Read(bands, left, right);
+}
+
 ExSwapchain* SceneWallpaper::exSwapchain() const {
     return m_main_handler->renderHandler()->exSwapchain();
 }
@@ -360,6 +373,26 @@ MHANDLER_CMD_IMPL(MainHandler, SET_PROPERTY) {
                 nmsg->setFloat("value", speed);
                 nmsg->post();
             }
+        } else if (property == PROPERTY_USER_PROPERTIES) {
+            std::string value;
+            msg->findString("value", &value);
+            if (value != m_user_properties) {
+                m_user_properties = value;
+                if (! m_source.empty()) CALL_MHANDLER_CMD(LOAD_SCENE, msg);
+            }
+        } else if (property == PROPERTY_TEXT_VALUES) {
+            msg->findString("value", &m_text_values);
+        } else if (property == PROPERTY_LAYER_TEXT) {
+            // "<object id>\x1f<text>"
+            std::string value;
+            msg->findString("value", &value);
+            const auto sep = value.find('\x1f');
+            if (m_text_layers && sep != std::string::npos) {
+                try {
+                    m_text_layers->SetText(std::stoi(value.substr(0, sep)), value.substr(sep + 1));
+                } catch (const std::exception&) {
+                }
+            }
         }
     }
 }
@@ -406,6 +439,14 @@ void MainHandler::loadScene() {
             LOG_ERROR("Mount assets dir failed");
             return;
         }
+        // Newer Wallpaper Engine installs keep each stock effect's materials and
+        // shaders in assets/effects/<name>/, resolved as if they were in assets/.
+        std::error_code ec;
+        for (const auto& entry :
+             std::filesystem::directory_iterator(std::filesystem::path(m_assets) / "effects", ec)) {
+            if (entry.is_directory(ec))
+                vfs.Mount("/assets", fs::CreatePhysicalFs(entry.path().native()));
+        }
     }
     std::filesystem::path pkgPath_fs { m_source };
     pkgPath_fs.replace_extension("pkg");
@@ -445,7 +486,26 @@ void MainHandler::loadScene() {
             LOG_ERROR("Not supported scene type");
             return;
         }
+        {
+            const auto parse = [](const std::string& s) {
+                return s.empty() ? nlohmann::json::object()
+                                 : nlohmann::json::parse(s, nullptr, false);
+            };
+            auto json = nlohmann::json::parse(scene_src, nullptr, false);
+            if (! json.is_discarded()) {
+                auto props = parse(m_user_properties), texts = parse(m_text_values);
+                PreprocessSceneJson(json,
+                                    props.is_discarded() ? nlohmann::json::object() : props,
+                                    texts.is_discarded() ? nlohmann::json::object() : texts);
+                scene_src = json.dump();
+            }
+        }
         scene = m_scene_parser.Parse(scene_id, scene_src, vfs, *m_sound_manager);
+        if (! scene) {
+            LOG_ERROR("parse scene failed");
+            return;
+        }
+        m_text_layers = scene->textLayers;
         scene->vfs.swap(pVfs);
     }
 

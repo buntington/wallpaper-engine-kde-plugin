@@ -13,6 +13,7 @@ namespace wallpaper
 class ParticleSystem;
 class IShaderValueUpdater;
 class IImageParser;
+class TextLayers;
 
 namespace fs
 {
@@ -35,6 +36,7 @@ public:
     std::unique_ptr<IShaderValueUpdater> shaderValueUpdater;
     std::unique_ptr<IImageParser>        imageParser;
     std::unique_ptr<fs::VFS>             vfs;
+    std::shared_ptr<TextLayers>          textLayers;
 
     std::string scene_id { "unknown_id" };
 

@@ -10,6 +10,7 @@ import platform
 import shutil
 
 from pathlib import Path
+from urllib.parse import unquote
 
 from typing import Callable,Any,Optional
 
@@ -172,6 +173,164 @@ def delete_wallpaper(path: str, workshopid: str = "") -> dict:
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": repr(e)}
+
+
+class ScenePkg:
+    """Reader for the PKGV archive that holds a scene's files."""
+
+    def __init__(self, path: Path):
+        self.data: bytes = path.read_bytes()
+        self.entries: dict = {}
+        pos = 0
+
+        def read_str() -> str:
+            nonlocal pos
+            n = int.from_bytes(self.data[pos:pos + 4], "little")
+            pos += 4
+            s = self.data[pos:pos + n].decode("utf-8", errors="replace")
+            pos += n
+            return s
+
+        read_str()  # version
+        count = int.from_bytes(self.data[pos:pos + 4], "little")
+        pos += 4
+        table = []
+        for _ in range(count):
+            name = read_str()
+            off = int.from_bytes(self.data[pos:pos + 4], "little")
+            size = int.from_bytes(self.data[pos + 4:pos + 8], "little")
+            pos += 8
+            table.append((name, off, size))
+        for name, off, size in table:
+            self.entries[name] = (pos + off, size)
+
+    def read(self, name: str) -> Optional[bytes]:
+        if name not in self.entries:
+            return None
+        off, size = self.entries[name]
+        return self.data[off:off + size]
+
+
+def _scene_vec(value: Any, default: list) -> list:
+    if isinstance(value, str):
+        try:
+            nums = [float(x) for x in value.split()]
+            return nums + default[len(nums):]
+        except ValueError:
+            return default
+    if isinstance(value, (int, float)):
+        return [float(value)] * len(default)
+    return default
+
+
+def _resolve_user(value: Any, user_props: dict) -> Any:
+    """Resolve a {"user": ..., "value": ...} binding against the user properties."""
+    if not isinstance(value, dict):
+        return value
+    if "user" in value:
+        user = value["user"]
+        default = value.get("value")
+        if isinstance(user, dict):
+            name = user.get("name")
+            if name not in user_props:
+                return default
+            if "condition" in user:
+                return str(user_props[name]) == str(user["condition"])
+            return user_props[name]
+        return user_props.get(user, default)
+    return value
+
+
+@jrpc.add_method
+def scene_text(source: str, assets: str) -> dict:
+    """Collect a scene's text objects, their scripts and the user property values."""
+    source = unquote(source.removeprefix("file://"))
+    assets = unquote(assets.removeprefix("file://"))
+    folder: Path = Path(source).parent
+    pkg: Optional[ScenePkg] = ScenePkg(folder / "scene.pkg") if (folder / "scene.pkg").is_file() else None
+
+    def read_file(name: str) -> Optional[bytes]:
+        if (folder / name).is_file():
+            return (folder / name).read_bytes()
+        if pkg is not None:
+            data = pkg.read(name)
+            if data is not None:
+                return data
+        if assets and (Path(assets) / name).is_file():
+            return (Path(assets) / name).read_bytes()
+        return None
+
+    scene_name: str = Path(source).name if Path(source).suffix == ".json" else "scene.json"
+    scene_data = read_file(scene_name)
+    if scene_data is None:
+        return {"ortho": [1920, 1080], "texts": []}
+    scene: dict = json.loads(scene_data)
+
+    user_props: dict = {}
+    try:
+        project: dict = json.loads((folder / "project.json").read_text())
+        for name, prop in (project.get("general", {}).get("properties") or {}).items():
+            if isinstance(prop, dict) and "value" in prop:
+                user_props[name] = prop["value"]
+    except (OSError, ValueError):
+        pass
+    user_props.update(M.read_wallpaper_config(folder.name).get("user_properties", {}))
+
+    ortho: dict = scene.get("general", {}).get("orthogonalprojection") or {}
+    objects: dict = {o.get("id"): o for o in scene.get("objects", []) if isinstance(o, dict)}
+
+    visible_cache: dict = {}
+
+    def visible(obj_id: Any, depth: int = 0) -> bool:
+        """Whether an object and all of its parents are visible."""
+        if obj_id in visible_cache:
+            return visible_cache[obj_id]
+        obj = objects.get(obj_id)
+        if obj is None or depth > 64:
+            return True
+        shown = _resolve_user(obj.get("visible", True), user_props)
+        shown = shown.get("value", True) if isinstance(shown, dict) else bool(shown)
+        if obj.get("parent") in objects:
+            shown = shown and visible(obj.get("parent"), depth + 1)
+        visible_cache[obj_id] = shown
+        return shown
+
+    def scripted(value: Any) -> dict:
+        """Split a property into its static value and optional script."""
+        value = _resolve_user(value, user_props)
+        if isinstance(value, dict) and "script" in value:
+            return {
+                "value": _resolve_user(value.get("value"), user_props),
+                "script": value["script"],
+                "scriptproperties": {
+                    k: _resolve_user(v, user_props)
+                    for k, v in (value.get("scriptproperties") or {}).items()
+                },
+            }
+        if isinstance(value, dict):
+            value = value.get("value")
+        return {"value": value}
+
+    # The renderer draws text objects; this is what their scripts need.
+    texts: list = []
+    for obj in scene.get("objects", []):
+        if not isinstance(obj, dict) or "text" not in obj:
+            continue
+        text = scripted(obj.get("text"))
+        if not isinstance(text.get("value"), str):
+            text["value"] = "" if text.get("value") is None else str(text["value"])
+        texts.append({
+            "id": obj.get("id"),
+            "name": obj.get("name", ""),
+            "visible": visible(obj.get("id")),
+            "text": text,
+        })
+
+    return {
+        "ortho": [float(ortho.get("width", 1920)), float(ortho.get("height", 1080))],
+        "userProperties": user_props,
+        "texts": texts,
+    }
 
 
 async def connect(uri):

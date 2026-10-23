@@ -20,6 +20,12 @@ constexpr std::string_view PROPERTY_VOLUME               = "volume";
 constexpr std::string_view PROPERTY_MUTED                = "muted";
 constexpr std::string_view PROPERTY_CACHE_PATH           = "cache_path";
 constexpr std::string_view PROPERTY_FIRST_FRAME_CALLBACK = "first_frame_callback";
+// JSON object of Wallpaper Engine user property values; reloads the scene.
+constexpr std::string_view PROPERTY_USER_PROPERTIES      = "user_properties";
+// JSON object of text object id -> initial text, used on the next load.
+constexpr std::string_view PROPERTY_TEXT_VALUES          = "text_values";
+// "<text object id>\x1f<text>": changes a text object's text while running.
+constexpr std::string_view PROPERTY_LAYER_TEXT           = "layer_text";
 
 #include "Core/NoCopyMove.hpp"
 class MainHandler;
@@ -45,6 +51,11 @@ public:
     void setPropertyObject(std::string_view, std::shared_ptr<void>);
 
     ExSwapchain* exSwapchain() const;
+
+    // Spectrum of the default output for scripts; capture runs while acquired.
+    static void AcquireAudioSpectrum();
+    static void ReleaseAudioSpectrum();
+    static void ReadAudioSpectrum(int bands, float* left, float* right);
 
 private:
     bool m_inited { false };

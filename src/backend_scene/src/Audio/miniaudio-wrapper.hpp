@@ -12,18 +12,7 @@
 #include "Utils/Logging.h"
 #include "Core/NoCopyMove.hpp"
 
-#define MA_NO_WASAPI
-#define MA_NO_DSOUND
-#define MA_NO_WINMM
-#define MA_NO_COREAUDIO
-#define MA_NO_ENCODING
-#define STB_VORBIS_HEADER_ONLY
-#include <miniaudio/extras/stb_vorbis.c> /* Enables Vorbis decoding. */
-#define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio/miniaudio.h>
-/* stb_vorbis implementation must come after the implementation of miniaudio. */
-#undef STB_VORBIS_HEADER_ONLY
-#include <miniaudio/extras/stb_vorbis.c> /* Enables Vorbis decoding. */
+#include "miniaudio-config.h"
 
 namespace miniaudio
 {

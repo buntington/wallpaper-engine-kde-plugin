@@ -631,7 +631,7 @@ RowLayout {
                         Object.entries(config_changes).forEach(([wid, cfg]) => {
                             pyext.write_wallpaper_config(wid, cfg).then(res => {
                                 if(wid == workshopid)
-                                    this.cofnig.update(this.config_changes);
+                                    this.config = Object.assign({}, this.config, cfg);
                                 this.config_changes = {};
                             });
                         });
@@ -778,6 +778,13 @@ RowLayout {
                             });
                         }
                     }
+                }
+                WallpaperProperties {
+                    Layout.fillWidth: true
+                    projectPath: right_content.wpmodel.type === 'scene'
+                        ? Common.getWpModelProjectPath(right_content.wpmodel) : ''
+                    readfile: pyext.readfile
+                    options: right_opts
                 }
                 PlasmaComponents.TextArea {
                     Layout.alignment: Qt.AlignTop

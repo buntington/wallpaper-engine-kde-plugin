@@ -30,6 +30,7 @@ add_subdirectory(Vulkan)
 add_subdirectory(Particle)
 add_subdirectory(VulkanRender)
 add_subdirectory(RenderGraph)
+add_subdirectory(Text)
 
 add_library(
   ${PROJECT_NAME} STATIC
@@ -49,6 +50,7 @@ add_library(
   WPSoundParser.cpp
   WPMdlParser.cpp
   WPPuppet.cpp
+  WPSceneJson.cpp
   SceneWallpaper.cpp)
 
 set(InteralLib
@@ -60,7 +62,8 @@ set(InteralLib
     wpVulkan
     wpRGraph
     wpParticle
-    wpTimer)
+    wpTimer
+    wpText)
 
 target_link_libraries(
   ${PROJECT_NAME}
