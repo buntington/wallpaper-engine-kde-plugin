@@ -34,6 +34,9 @@ using WPTexFlags = BitFlags<WPTexFlagEnum>;
 
 namespace
 {
+
+// Texture flag: the header and every mip carry an extra depth / slice count.
+constexpr uint32_t TexFlagDepth = 0x40;
 char* Lz4Decompress(const char* src, int size, int decompressed_size) {
     char* dst       = new char[(usize)decompressed_size];
     int   load_size = LZ4_decompress_safe(src, dst, size, decompressed_size);
@@ -72,7 +75,9 @@ void LoadHeader(fs::IBinaryStream& file, ImageHeader& header) {
     header.extraHeader["texi"].val = ReadTexVesion(file);
 
     header.format = ToTexFormate(file.ReadInt32());
-    WPTexFlags flags(file.ReadUint32());
+    const uint32_t raw_flags = file.ReadUint32();
+    WPTexFlags     flags(raw_flags);
+    header.extraHeader["flags"].val = (int32_t)raw_flags;
     {
         header.isSprite     = flags[WPTexFlagEnum::sprite];
         header.sample.wrapS = header.sample.wrapT =
@@ -104,14 +109,20 @@ void LoadHeader(fs::IBinaryStream& file, ImageHeader& header) {
     header.mapWidth  = file.ReadInt32();
     header.mapHeight = file.ReadInt32();
 
+    if (raw_flags & TexFlagDepth) file.ReadInt32(); // image depth / 3D slice count
+
     file.ReadInt32(); // unknown
 
     header.extraHeader["texb"].val = ReadTexVesion(file);
 
     header.count = file.ReadInt32();
 
-    if (header.extraHeader["texb"].val == 3) header.type = static_cast<ImageType>(file.ReadInt32());
+    // TEXB0003 adds the image container type, TEXB0004 also a video marker.
+    if (header.extraHeader["texb"].val >= 3) header.type = static_cast<ImageType>(file.ReadInt32());
+    if (header.extraHeader["texb"].val >= 4) header.extraHeader["video"].val = file.ReadInt32();
 }
+
+bool HasDepth(ImageHeader& header) { return header.extraHeader["flags"].val & TexFlagDepth; }
 
 void SetHeaderPow2(ImageHeader& header, i32 mip_0_w, i32 mip_0_h) {
     header.mipmap_pow2   = algorism::IsPowOfTwo((u32)mip_0_w) || algorism::IsPowOfTwo((u32)mip_0_h);
@@ -131,6 +142,10 @@ std::shared_ptr<Image> WPTexImageParser::Parse(const std::string& name) {
     auto& file     = *pfile;
     auto  startpos = file.Tell();
     LoadHeader(file, img.header);
+    if (img.header.extraHeader["video"].val != 0) {
+        LOG_INFO("video texture not supported: %s", name.c_str());
+        return nullptr;
+    }
 
     // image
     i32 _image_count = img.header.count;
@@ -149,6 +164,7 @@ std::shared_ptr<Image> WPTexImageParser::Parse(const std::string& name) {
             auto& mipmap  = mipmaps.at(i_mipmap);
             mipmap.width  = file.ReadInt32();
             mipmap.height = file.ReadInt32();
+            if (HasDepth(img.header)) file.ReadInt32();
             if (i_mipmap == 0) {
                 img_slot.width  = mipmap.width;
                 img_slot.height = mipmap.height;
@@ -185,7 +201,7 @@ std::shared_ptr<Image> WPTexImageParser::Parse(const std::string& name) {
                 }
             }
             // is image container
-            if (img.header.extraHeader["texb"].val == 3 && img.header.type != ImageType::UNKNOWN) {
+            if (img.header.extraHeader["texb"].val >= 3 && img.header.type != ImageType::UNKNOWN) {
                 int32_t w, h, n;
                 auto*   data =
                     stbi_load_from_memory((const unsigned char*)result, src_size, &w, &h, &n, 4);
@@ -215,6 +231,10 @@ ImageHeader WPTexImageParser::ParseHeader(const std::string& name) {
 
     LoadHeader(file, header);
     if (header.count < 0) return header;
+    if (header.extraHeader["video"].val != 0) {
+        header.isSprite = false;
+        return header;
+    }
 
     usize image_count = (usize)header.count;
 
@@ -227,6 +247,7 @@ ImageHeader WPTexImageParser::ParseHeader(const std::string& name) {
             for (int32_t i_mipmap = 0; i_mipmap < mipmap_count; i_mipmap++) {
                 int32_t width  = file.ReadInt32();
                 int32_t height = file.ReadInt32();
+                if (HasDepth(header)) file.ReadInt32();
                 if (i_mipmap == 0) {
                     imageDatas.at(i_image) = { (float)width, (float)height };
                     header.mipmap_pow2     = algorism::IsPowOfTwo((u32)(width * height));
@@ -257,11 +278,12 @@ ImageHeader WPTexImageParser::ParseHeader(const std::string& name) {
         for (int32_t i = 0; i < framecount; i++) {
             SpriteFrame sf;
             sf.imageId = file.ReadInt32();
-            if (sf.imageId < 0) {
-                LOG_ERROR("get neg imageid");
-            }
-            float spriteWidth  = imageDatas.at((usize)sf.imageId)[0];
-            float spriteHeight = imageDatas.at((usize)sf.imageId)[1];
+            // A frame naming a missing image is read (to stay aligned) but dropped.
+            const bool valid = sf.imageId >= 0 && (usize)sf.imageId < imageDatas.size() &&
+                               imageDatas[(usize)sf.imageId].size() >= 2;
+            if (! valid) LOG_ERROR("sprite frame with bad image id %d in %s", sf.imageId, name.c_str());
+            float spriteWidth  = valid ? imageDatas[(usize)sf.imageId][0] : 1.0f;
+            float spriteHeight = valid ? imageDatas[(usize)sf.imageId][1] : 1.0f;
 
             sf.frametime = file.ReadFloat();
             if (texs == 1) {
@@ -286,7 +308,7 @@ ImageHeader WPTexImageParser::ParseHeader(const std::string& name) {
             sf.yAxis[0] /= spriteHeight;
             sf.yAxis[1] /= spriteHeight;
             sf.rate = sf.height / sf.width;
-            header.spriteAnim.AppendFrame(sf);
+            if (valid) header.spriteAnim.AppendFrame(sf);
         }
     } else {
         i32 mipmap_count = file.ReadInt32();

@@ -25,8 +25,6 @@ namespace
 // Wallpaper Engine renders one point as four scene units.
 constexpr float UnitsPerPoint  = 4.0f;
 constexpr int   MaxTextureSide = 4096;
-// Extra width so text that grows a little (e.g. 9:59 -> 10:00) is not shrunk.
-constexpr float WidthHeadroom = 1.25f;
 
 struct Font {
     std::shared_ptr<std::vector<uint8_t>> data;
@@ -425,11 +423,13 @@ std::string TextLayers::Add(int32_t id, TextStyle style, const std::string& text
             layer->style.systemFont.empty() ? "sans-serif" : layer->style.systemFont);
     if (! layer->Primary()) LOG_ERROR("text layer %d: no usable font", id);
 
-    // Measure in scene units first, then pick the texture resolution.
+    // Measure in scene units first, then pick the texture resolution. The layer
+    // is exactly as large as Wallpaper Engine makes it (effect masks map onto it);
+    // text that outgrows it later is shrunk to fit.
     const auto& st     = layer->style;
     const float em     = std::max(st.pointsize, 1.0f) * UnitsPerPoint;
     Layout      l      = layer->DoLayout(text, em);
-    const float unitsW = std::max(st.size[0], l.width * WidthHeadroom + 2.0f * st.padding);
+    const float unitsW = std::max(st.size[0], l.width + 2.0f * st.padding);
     const float unitsH = std::max(st.size[1], l.height + 2.0f * st.padding);
     size               = { std::max(unitsW, 1.0f), std::max(unitsH, 1.0f) };
 
