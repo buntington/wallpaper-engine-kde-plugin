@@ -109,6 +109,10 @@ bool WPMaterial::FromJson(const nlohmann::json& json) {
             textures.push_back(tex);
         }
     }
+    if(jContent.contains("usershadervalues")) {
+        for(const auto& jU:jContent.at("usershadervalues").items())
+            if(jU.value().is_string()) usershadervalues[jU.key()] = jU.value().get<std::string>();
+    }
     if(jContent.contains("constantshadervalues")) {
         for(const auto& jC:jContent.at("constantshadervalues").items()) {
             std::string name;

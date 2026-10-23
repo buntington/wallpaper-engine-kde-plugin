@@ -20,6 +20,8 @@ struct ShaderReflected {
         size_t array_len { 0 };
         size_t array_stride { 0 };
         size_t elem_size { 0 };
+        // mat3: columns padded to vec4 (std140), while values come as mat4
+        size_t mat3_stride { 0 };
     };
     struct Block {
         int         index;

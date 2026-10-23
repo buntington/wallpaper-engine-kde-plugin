@@ -72,6 +72,7 @@ struct VulkanRender::Impl {
     std::unique_ptr<Device> m_device;
 
     std::unique_ptr<PrePass> m_prepass { nullptr };
+    std::unique_ptr<PrePass> m_reflection_prepass { nullptr };
     std::unique_ptr<FinPass> m_finpass { nullptr };
 
     std::unique_ptr<FinPass> m_testpass { nullptr };
@@ -193,7 +194,9 @@ bool VulkanRender::Impl::init(RenderInitInfo info) {
 }
 
 bool VulkanRender::Impl::initRes() {
-    m_prepass = std::make_unique<PrePass>(PrePass::Desc {});
+    m_prepass            = std::make_unique<PrePass>(PrePass::Desc {});
+    m_reflection_prepass = std::make_unique<PrePass>(
+        PrePass::Desc { .result = SpecTex_Reflection, .scene_color = false });
     m_finpass = std::make_unique<FinPass>(FinPass::Desc {});
     if (m_with_surface) {
         m_finpass->setPresentFormat(m_device->swapchain().format());
@@ -281,8 +284,8 @@ bool VulkanRender::Impl::CreateRenderingResource(RenderingResources& rr) {
 
 void VulkanRender::Impl::DestroyRenderingResource(RenderingResources& rr) {}
 
-const VmaImageParameters* DepthTargets::Get(VkExtent3D extent) {
-    const auto key = std::make_pair(extent.width, extent.height);
+const VmaImageParameters* DepthTargets::Get(const std::string& output, VkExtent3D extent) {
+    const auto key = std::make_tuple(output, extent.width, extent.height);
     if (auto it = m_images.find(key); it != m_images.end()) return &it->second;
 
     VmaImageParameters image;
@@ -534,9 +537,11 @@ void VulkanRender::Impl::UpdateCameraFillMode(wallpaper::Scene&   scene,
     scene.UpdateLinkedCamera("global");
 
     // 3D scenes keep their field of view and follow the output's aspect.
-    if (auto it = scene.cameras.find("scene_3d"); it != scene.cameras.end()) {
-        it->second->SetAspect(fboAspect);
-        it->second->Update();
+    for (const char* name : { "scene_3d", "scene_3d_reflect" }) {
+        if (auto it = scene.cameras.find(name); it != scene.cameras.end()) {
+            it->second->SetAspect(fboAspect);
+            it->second->Update();
+        }
     }
 }
 
@@ -581,6 +586,8 @@ void VulkanRender::Impl::compileRenderGraph(Scene& scene, rg::RenderGraph& rg) {
                        return vpass;
                    });
 
+    if (scene.renderTargets.count(std::string(SpecTex_Reflection)) != 0)
+        m_passes.insert(m_passes.begin(), m_reflection_prepass.get());
     m_passes.insert(m_passes.begin(), m_prepass.get());
     m_passes.push_back(m_finpass.get());
 

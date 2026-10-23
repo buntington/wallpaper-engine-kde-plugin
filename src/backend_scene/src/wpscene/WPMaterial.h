@@ -45,6 +45,8 @@ public:
     std::vector<std::string>                            textures;
     std::unordered_map<std::string, int32_t>            combos;
     std::unordered_map<std::string, std::vector<float>> constantshadervalues;
+    // user property name -> material constant it sets
+    std::unordered_map<std::string, std::string>        usershadervalues;
 
     bool use_puppet { false };
 };

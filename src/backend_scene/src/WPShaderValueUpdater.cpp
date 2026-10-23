@@ -44,6 +44,12 @@ void WPShaderValueUpdater::FrameBegin() {
             (((cTime->tm_hour * 60) + cTime->tm_min) * 60 + cTime->tm_sec) / (24.0f * 60.0f
        * 60.0f);
     */
+    if (! m_camera_path.Empty()) {
+        m_path_time += m_scene->frameTime;
+        const auto key = m_camera_path.Sample(m_path_time);
+        for (auto& cam : m_path_cameras) cam->SetLookAt(key.eye, key.center, key.up);
+    }
+
     double new_time    = m_mouseDelayedTime + m_scene->frameTime;
     new_time           = new_time > m_parallax.delay ? m_parallax.delay : new_time;
     m_mouseDelayedTime = new_time;
@@ -221,11 +227,12 @@ void WPShaderValueUpdater::UpdateUniforms(SceneNode* pNode, sprite_map_t& sprite
         updateOp(G_EYEPOSITION, std::array { (float)eye.x(), (float)eye.y(), (float)eye.z() });
     }
     if (info.has_LCR) {
-        // vec4[4]: light color times intensity, and radius
-        std::array<float, 16> lights { 0 };
+        // vec4[4]: light color times intensity, and radius. Unused slots are black
+        // with radius 1, as shaders divide by the radius.
+        std::array<float, 16> lights { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1 };
         for (usize i = 0; i < std::min<usize>(4, m_scene->lights.size()); i++) {
             const auto& l = *m_scene->lights[i];
-            const auto  c = l.color() * l.intensity();
+            const Eigen::Vector3f c = l.color() * l.intensity();
             lights[i * 4 + 0] = c.x(), lights[i * 4 + 1] = c.y(), lights[i * 4 + 2] = c.z();
             lights[i * 4 + 3] = l.radius();
         }
@@ -268,7 +275,9 @@ void WPShaderValueUpdater::UpdateUniforms(SceneNode* pNode, sprite_map_t& sprite
     }
 
     if (info.has_LP) {
+        // Unused slots sit far away, so shaders get no zero-length light direction.
         std::array<float, 16> lights { 0 };
+        for (usize i = m_scene->lights.size(); i < 4; i++) lights[i * 4 + 1] = 1.0e6f;
         std::array<float, 12> lights_color { 0 };
         uint                  i = 0;
         for (auto& l : m_scene->lights) {

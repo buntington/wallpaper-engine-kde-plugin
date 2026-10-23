@@ -64,6 +64,8 @@ constexpr std::string_view G_ETVPI { "g_EffectTextureProjectionMatrixInverse" };
 constexpr std::string_view G_LP { "g_LightsPosition" };
 constexpr std::string_view G_LCP { "g_LightsColorPremultiplied" };
 constexpr std::string_view G_LCR { "g_LightsColorRadius" };
+// 3D scenes: mirrored "reflected" models, sampled by REFLECTION materials
+constexpr std::string_view SpecTex_Reflection { "_rt_Reflection" };
 constexpr std::string_view G_LAMBIENT { "g_LightAmbientColor" };
 constexpr std::string_view G_LSKYLIGHT { "g_LightSkylightColor" };
 constexpr std::string_view G_EYEPOSITION { "g_EyePosition" };

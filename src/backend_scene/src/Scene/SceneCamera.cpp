@@ -36,6 +36,7 @@ void SceneCamera::CalculateViewProjectionMatrix() {
 	{
 		if(m_lookAt) {
 			m_viewMat = LookAt(m_eye, m_center, m_up);
+			if(m_mirrorY) m_viewMat = m_viewMat * Vector4d(1, -1, 1, 1).asDiagonal().toDenseMatrix();
 		} else if(m_node) {
 			Affine3d nodeTrans(m_node->GetLocalTrans());
 			Vector3d eye = nodeTrans * Vector3d::Zero();
@@ -47,7 +48,19 @@ void SceneCamera::CalculateViewProjectionMatrix() {
 	};
 
 	if(m_perspective) {
-		m_viewProjectionMat = Perspective(Radians(m_fov), m_aspect, m_nearClip, m_farClip) * m_viewMat;
+		Matrix4d proj = Perspective(Radians(m_fov), m_aspect, m_nearClip, m_farClip);
+		if(m_mirrorY) {
+			// Only what is above the mirror plane (y = 0) is reflected: move the near plane
+			// onto it (oblique near plane, depth in [0, 1]).
+			Vector4d plane = m_viewMat.inverse().transpose() * Vector4d(0, 1, 0, 0);
+			auto     sgn   = [](double v) { return v > 0 ? 1.0 : v < 0 ? -1.0 : 0.0; };
+			Vector4d q     = proj.inverse() * Vector4d(sgn(plane.x()), sgn(plane.y()), 1, 1);
+			proj.row(2)    = plane.transpose() / plane.dot(q);
+			// Shaders sample the reflection with D3D screen coordinates (v down), so it is
+			// stored upside down. This also undoes the winding flip of the mirror.
+			proj = Vector4d(1, -1, 1, 1).asDiagonal().toDenseMatrix() * proj;
+		}
+		m_viewProjectionMat = proj * m_viewMat;
 	} else {
 		double left = -m_width/2.0f;
 		double right = m_width/2.0f;

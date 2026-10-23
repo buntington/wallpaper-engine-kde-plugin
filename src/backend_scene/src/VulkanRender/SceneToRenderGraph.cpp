@@ -128,6 +128,9 @@ static void ToGraphPass(SceneNode* node, std::string_view output, i32 imgId, Ext
     auto* material   = mesh->Material();
     auto* mshaderPtr = material->customShader.shader.get();
 
+    // mirrored copies of "reflected" models draw into the reflection target
+    if (node->Camera() == "scene_3d_reflect") output = SpecTex_Reflection;
+
     SceneImageEffectLayer* imgeff = nullptr;
     if (! node->Camera().empty()) {
         auto& cam = scene.cameras.at(node->Camera());
@@ -148,7 +151,7 @@ static void ToGraphPass(SceneNode* node, std::string_view output, i32 imgId, Ext
             pdesc.node       = node;
             pdesc.output     = output;
             // 3D model passes test and write depth; the first per output clears it.
-            if (node->Camera() == "scene_3d") {
+            if (node->Camera() == "scene_3d" || node->Camera() == "scene_3d_reflect") {
                 pdesc.depth       = true;
                 pdesc.depth_clear = extra.depth_cleared.insert(std::string(output)).second;
             }

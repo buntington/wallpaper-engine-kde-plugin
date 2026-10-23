@@ -4,7 +4,7 @@
 
 using namespace wallpaper::vulkan;
 
-PrePass::PrePass(const Desc&) {}
+PrePass::PrePass(const Desc& desc): m_desc(desc) {}
 PrePass::~PrePass() {}
 
 namespace
@@ -33,7 +33,8 @@ void PrePass::prepare(Scene& scene, const Device& device, RenderingResources&) {
     }
     {
         auto& sc           = scene.clearColor;
-        m_desc.clear_value = VkClearValue { sc[0], sc[1], sc[2], 1.0f };
+        m_desc.clear_value = m_desc.scene_color ? VkClearValue { sc[0], sc[1], sc[2], 1.0f }
+                                                : VkClearValue { 0.0f, 0.0f, 0.0f, 1.0f };
     }
     setPrepared();
 }

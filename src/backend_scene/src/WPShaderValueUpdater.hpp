@@ -13,6 +13,8 @@
 #include "Core/MapSet.hpp"
 #include "SpriteAnimation.hpp"
 #include "WPPuppet.hpp"
+#include "WPCameraPath.hpp"
+#include "Scene/SceneCamera.h"
 
 namespace wallpaper
 {
@@ -82,6 +84,11 @@ public:
 
     void SetNodeData(void*, const WPShaderValueData&);
     void SetCameraParallax(const WPCameraParallax& value) { m_parallax = value; }
+    // moves these cameras (3D view and its mirror) along the path every frame
+    void SetCameraPath(WPCameraPath path, std::vector<std::shared_ptr<SceneCamera>> cameras) {
+        m_camera_path  = std::move(path);
+        m_path_cameras = std::move(cameras);
+    }
 
     void SetScreenSize(i32 w, i32 h) override { m_screen_size = { (float)w, (float)h }; }
 
@@ -105,6 +112,10 @@ private:
 
     // g_AudioSpectrum{16,32,64}{Left,Right}, read once per frame while captured
     bool                                   m_audio_acquired { false };
+
+    WPCameraPath                              m_camera_path;
+    std::vector<std::shared_ptr<SceneCamera>> m_path_cameras;
+    double                                    m_path_time { 0 };
     std::array<std::array<float, 64>, 6> m_audio {};
 };
 } // namespace wallpaper

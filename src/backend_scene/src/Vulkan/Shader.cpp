@@ -94,7 +94,7 @@ inline bool parse(const ShaderCompUnit& unit, const ShaderCompOpt& opt, EShMessa
     auto  client = getClient(opt.client_ver);
     shader.setStrings(&data, 1);
     shader.setEnvInput(opt.hlsl ? glslang::EShSourceHlsl : glslang::EShSourceGlsl,
-                       EShLanguage::EShLangVertex,
+                       shader.getStage(), // glslang takes the stage from here
                        client,
                        ClientInputSemanticsVersion);
     shader.setEnvClient(client, opt.client_ver);
@@ -369,6 +369,10 @@ bool wallpaper::vulkan::GenReflect(std::span<const std::vector<uint>> codes,
                         // bunif.num = GetTypeNum(type);
                         bunif.size   = unif.size;
                         bunif.offset = unif.offset;
+                        const auto& mat = unif.numeric.matrix;
+                        if (unif.array.dims_count == 0 && mat.column_count == 3 &&
+                            mat.row_count == 3)
+                            bunif.mat3_stride = mat.stride;
                         if (unif.array.dims_count > 0) {
                             const auto& num  = unif.numeric;
                             const u32   comp = num.matrix.column_count > 0

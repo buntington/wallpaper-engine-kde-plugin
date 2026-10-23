@@ -18,6 +18,9 @@ bool WPSceneCamera::FromJson(const nlohmann::json& json) {
     GET_JSON_NAME_VALUE(json, "center", center);
     GET_JSON_NAME_VALUE(json, "eye", eye);
     GET_JSON_NAME_VALUE(json, "up", up);
+    if (json.contains("paths") && json.at("paths").is_array())
+        for (const auto& p : json.at("paths"))
+            if (p.is_string()) paths.push_back(p.get<std::string>());
     return true;
 }
 

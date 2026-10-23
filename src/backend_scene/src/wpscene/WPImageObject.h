@@ -71,6 +71,7 @@ public:
     float                      alpha { 1.0f };
     float                      brightness { 1.0f };
     bool                       fullscreen { false };
+    bool                       passthrough { false }; // image model only shows what is below
     bool                       nopadding { false };
     bool                       visible { true };
     bool                       isText { false };

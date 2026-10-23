@@ -17,6 +17,8 @@ public:
         // in
         const std::string_view result { SpecTex_Default };
         const VkImageLayout    layout { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        // clear to the scene's clear color, or to black (e.g. reflections)
+        const bool scene_color { true };
 
         // prepared
         ImageParameters vk_result;

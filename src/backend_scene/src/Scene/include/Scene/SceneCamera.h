@@ -32,6 +32,8 @@ public:
     // A fixed eye/center/up instead of an attached node (3D scene cameras).
     void SetLookAt(const Eigen::Vector3d& eye, const Eigen::Vector3d& center,
                    const Eigen::Vector3d& up);
+    // Sees the scene mirrored across the y = 0 plane (planar reflections).
+    void SetMirrorY(bool value) { m_mirrorY = value; Update(); }
 
     bool   IsPerspective() const { return m_perspective; }
     double Aspect() const { return m_aspect; }
@@ -88,6 +90,7 @@ private:
     Eigen::Matrix4d m_viewProjectionMat { Eigen::Matrix4d::Identity() };
 
     bool            m_lookAt { false };
+    bool            m_mirrorY { false };
     Eigen::Vector3d m_eye { Eigen::Vector3d::Zero() };
     Eigen::Vector3d m_center { -Eigen::Vector3d::UnitZ() };
     Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };

@@ -16,6 +16,7 @@
 #include "WPMdlParser.hpp"
 #include "Text/TextLayers.hpp"
 #include "WPModelParser.hpp"
+#include "WPCameraPath.hpp"
 
 #include "Particle/WPParticleRawGener.h"
 #include "Particle/ParticleSystem.h"
@@ -69,6 +70,7 @@ struct WPModelObject {
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
     bool                 visible { true };
+    bool                 reflected { false }; // also drawn mirrored into the reflection
     WPModel              model;
 };
 
@@ -257,6 +259,7 @@ void ParseSpecTexName(std::string& name, const wpscene::WPMaterial& wpmat,
         } else if (sstart_with(name, WE_HALF_COMPO_BUFFER_PREFIX)) {
         } else if (sstart_with(name, WE_QUARTER_COMPO_BUFFER_PREFIX)) {
         } else if (sstart_with(name, WE_FULL_COMPO_BUFFER_PREFIX)) {
+        } else if (name == SpecTex_Reflection) {
         } else {
             LOG_ERROR("unknown tex \"%s\"", name.c_str());
         }
@@ -369,6 +372,18 @@ bool LoadMaterial(fs::VFS& vfs, const wpscene::WPMaterial& wpmat, Scene* pScene,
                     pWPShaderInfo->combos["TEX0FORMAT"] = "FORMAT_R8";
                 else if (texh.format == TextureFormat::RG8)
                     pWPShaderInfo->combos["TEX0FORMAT"] = "FORMAT_RG88";
+            }
+            // Shaders unpack some textures by format (e.g. DXT5 normal maps keep the
+            // normal in green and alpha), so tell them, unless the material did.
+            {
+                const std::string combo = "TEX" + std::to_string(i) + "FORMAT";
+                const char*       id    = texh.format == TextureFormat::BC3   ? "FORMAT_DXT5"
+                                          : texh.format == TextureFormat::BC2 ? "FORMAT_DXT3"
+                                          : texh.format == TextureFormat::BC1 ? "FORMAT_DXT1"
+                                                                              : nullptr;
+                if (id != nullptr && pWPShaderInfo->combos.count(combo) == 0 &&
+                    ! wpmat.combos.contains(combo))
+                    pWPShaderInfo->combos[combo] = id;
             }
             if (texh.mipmap_larger) {
                 resolution = { texh.width, texh.height, texh.mapWidth, texh.mapHeight };
@@ -558,9 +573,28 @@ void InitContext(ParseContext& context, fs::VFS& vfs, wpscene::WPScene& sc) {
     }
 }
 
+// Values of user properties bound into shaders: "usershadervalues" maps a
+// property name to a material constant, e.g. a car's paint color.
+void ApplyUserShaderValues(const nlohmann::json* props, wpscene::WPMaterial& wpmat) {
+    if (props == nullptr) return;
+    for (const auto& [prop, constant] : wpmat.usershadervalues) {
+        if (! props->contains(prop)) continue;
+        const auto&        v = props->at(prop);
+        std::vector<float> values;
+        if (v.is_number()) values = { v.get<float>() };
+        else if (v.is_boolean()) values = { v.get<bool>() ? 1.0f : 0.0f };
+        else if (v.is_string()) {
+            std::istringstream in(v.get<std::string>());
+            for (float f; in >> f;) values.push_back(f);
+        }
+        if (! values.empty()) wpmat.constantshadervalues[constant] = values;
+    }
+}
+
 void ParseImageObj(ParseContext& context, wpscene::WPImageObject& img_obj) {
     auto& wpimgobj = img_obj;
     if (! wpimgobj.visible) return;
+    ApplyUserShaderValues(context.user_properties, wpimgobj.material);
 
     auto& vfs = *context.vfs;
 
@@ -585,8 +619,13 @@ void ParseImageObj(ParseContext& context, wpscene::WPImageObject& img_obj) {
         if (wpeffobj.visible) count_eff++;
     }
     bool hasEffect = count_eff > 0;
-    // skip no effect fullscreen layer
-    if (! hasEffect && wpimgobj.fullscreen) return;
+    // Fullscreen layers without effects: pass-through ones show what is below and are
+    // skipped; others (e.g. a sky drawn by its own shader) draw their 2x2 quad, which
+    // their shaders use as clip space.
+    if (! hasEffect && wpimgobj.fullscreen) {
+        if (wpimgobj.passthrough) return;
+        wpimgobj.fullscreen = false;
+    }
 
     bool hasPuppet = ! wpimgobj.puppet.empty();
     (void)hasPuppet;
@@ -1102,25 +1141,7 @@ void ParseLightObj(ParseContext& context, wpscene::WPLightObject& light_obj) {
 }
 
 constexpr std::string_view Camera3D { "scene_3d" };
-
-// Values of user properties bound into shaders: "usershadervalues" maps a
-// property name to a material constant, e.g. a car's paint color.
-void ApplyUserShaderValues(const nlohmann::json& jPass, const nlohmann::json* props,
-                           wpscene::WPMaterial& wpmat) {
-    if (props == nullptr || ! jPass.contains("usershadervalues")) return;
-    for (const auto& [prop, constant] : jPass.at("usershadervalues").items()) {
-        if (! constant.is_string() || ! props->contains(prop)) continue;
-        const auto&        v = props->at(prop);
-        std::vector<float> values;
-        if (v.is_number()) values = { v.get<float>() };
-        else if (v.is_boolean()) values = { v.get<bool>() ? 1.0f : 0.0f };
-        else if (v.is_string()) {
-            std::istringstream in(v.get<std::string>());
-            for (float f; in >> f;) values.push_back(f);
-        }
-        if (! values.empty()) wpmat.constantshadervalues[constant.get<std::string>()] = values;
-    }
-}
+constexpr std::string_view Camera3DReflect { "scene_3d_reflect" };
 
 void ParseModelObj(ParseContext& context, WPModelObject& obj) {
     auto& vfs   = *context.vfs;
@@ -1142,7 +1163,9 @@ void ParseModelObj(ParseContext& context, WPModelObject& obj) {
         if (! wpmat.hasDepthtest) wpmat.depthtest = "enabled";
         if (! wpmat.hasDepthwrite) wpmat.depthwrite = wpmat.blending == "additive" ? "disabled" : "enabled";
         if (! wpmat.hasCullmode) wpmat.cullmode = "normal";
-        ApplyUserShaderValues(jMat.at("passes").at(0), context.user_properties, wpmat);
+        // translucent surfaces would hide what's drawn later through their clear parts
+        if (wpmat.blending == "translucent") wpmat.depthwrite = "disabled";
+        ApplyUserShaderValues(context.user_properties, wpmat);
 
         auto node = std::make_shared<SceneNode>(Vector3f(obj.origin.data()),
                                                 Vector3f(obj.scale.data()),
@@ -1159,6 +1182,22 @@ void ParseModelObj(ParseContext& context, WPModelObject& obj) {
             continue;
         }
         LoadConstvalue(material, wpmat, shaderInfo);
+
+        // A mirrored copy for the reflection; mirroring flips the winding.
+        if (obj.reflected && scene.cameras.count(std::string(Camera3DReflect)) != 0) {
+            auto mirror = std::make_shared<SceneNode>(Vector3f(obj.origin.data()),
+                                                      Vector3f(obj.scale.data()),
+                                                      Vector3f(obj.angles.data()));
+            mirror->SetCamera(std::string(Camera3DReflect));
+            // the mirror camera keeps the winding, so culling stays as it is
+            SceneMaterial mirror_material = material;
+            auto          mirrorMesh      = std::make_shared<SceneMesh>();
+            WPModelParser::GenMesh(*mirrorMesh, src);
+            mirrorMesh->AddMaterial(std::move(mirror_material));
+            mirror->AddMesh(mirrorMesh);
+            context.shader_updater->SetNodeData(mirror.get(), svData);
+            scene.sceneGraph->AppendChild(mirror);
+        }
 
         auto spMesh = std::make_shared<SceneMesh>();
         WPModelParser::GenMesh(*spMesh, src);
@@ -1180,6 +1219,7 @@ void AddModelObject(std::vector<WPObjectVar>& objs, const nlohmann::json& json, 
     GET_JSON_NAME_VALUE_NOWARN(json, "origin", obj.origin);
     GET_JSON_NAME_VALUE_NOWARN(json, "scale", obj.scale);
     GET_JSON_NAME_VALUE_NOWARN(json, "angles", obj.angles);
+    GET_JSON_NAME_VALUE_NOWARN(json, "reflected", obj.reflected);
     if (path.empty() || ! WPModelParser::Parse(path, vfs, obj.model)) {
         LOG_ERROR("model '%s': can't load %s", obj.name.c_str(), path.c_str());
         return;
@@ -1350,6 +1390,18 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
                        Vector3d(c.center[0], c.center[1], c.center[2]),
                        Vector3d(c.up[0], c.up[1], c.up[2]));
         context.scene->cameras[std::string(Camera3D)] = cam;
+
+        auto mirror = std::make_shared<SceneCamera>(*cam);
+        mirror->SetMirrorY(true);
+        context.scene->cameras[std::string(Camera3DReflect)] = mirror;
+        if (WPCameraPath path; path.Load(sc.camera.paths, *context.vfs))
+            context.shader_updater->SetCameraPath(std::move(path), { cam, mirror });
+        // screen-sized, cleared to black each frame
+        context.scene->renderTargets[std::string(SpecTex_Reflection)] = {
+            .width  = context.ortho_w,
+            .height = context.ortho_h,
+            .bind   = { .enable = true, .screen = true },
+        };
     }
 
     {

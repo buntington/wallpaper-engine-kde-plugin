@@ -164,15 +164,22 @@ static void UpdateUniform(StagingBuffer* buf, const StagingBufferRef& bufref,
         return;
     }
 
-    size_t offset    = uni->second.offset;
-    size_t type_size = sizeof(float) * uni->second.num;
+    const auto& u      = uni->second;
+    size_t      offset = u.offset;
+    size_t      type_size = sizeof(float) * u.num;
     if (type_size != value_u8.size()) {
         // assert(type_size == value_u8.size());
         ; // to do
     }
+    // mat4 values given to a mat3 uniform: write the upper-left 3x3, column by column.
+    if (u.mat3_stride > 0 && value_u8.size() == 16 * sizeof(float)) {
+        for (size_t c = 0; c < 3; c++)
+            buf->writeToBuf(bufref, value_u8.subspan(c * 4 * sizeof(float), 3 * sizeof(float)),
+                            offset + c * u.mat3_stride);
+        return;
+    }
     // Padded arrays (e.g. float[16] in std140, 16 bytes per element) given tightly packed
     // are written per element; data already laid out with the stride is copied as is.
-    const auto& u = uni->second;
     if (u.array_len > 0 && u.elem_size > 0 && u.array_stride > u.elem_size &&
         value_u8.size() < u.array_len * u.array_stride) {
         const size_t count = std::min(u.array_len, value_u8.size() / u.elem_size);
@@ -338,8 +345,10 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
         {
             VkColorComponentFlags colorMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+            // 3D models keep the target opaque, whatever alpha their shaders output
             bool alpha =
-                ! (m_desc.node->Camera().empty() || sstart_with(m_desc.node->Camera(), "global"));
+                ! (m_desc.node->Camera().empty() || sstart_with(m_desc.node->Camera(), "global")) &&
+                ! m_desc.depth;
 
             if (alpha) colorMask |= VK_COLOR_COMPONENT_A_BIT;
             color_blend.colorWriteMask = colorMask;
@@ -349,8 +358,10 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
             m_desc.blending = color_blend.blendEnable;
 
             SetAttachmentLoadOp(blendmode, loadOp);
+            // models cover part of the target, so keep what is already drawn
+            if (m_desc.depth) loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         }
-        if (m_desc.depth) m_desc.depth_image = rr.depth->Get(m_desc.vk_output.extent);
+        if (m_desc.depth) m_desc.depth_image = rr.depth->Get(m_desc.output, m_desc.vk_output.extent);
         if (m_desc.depth && m_desc.depth_image == nullptr) { LOG_ERROR("pass '%s': %s failed", m_desc.node->Mesh()->Material()->name.c_str(), "depth image"); return; }
         auto opt = m_desc.depth
                        ? CreateDepthRenderPass(
