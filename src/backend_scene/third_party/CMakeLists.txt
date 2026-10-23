@@ -4,7 +4,8 @@ add_subdirectory(glad)
 
 add_library (eigen INTERFACE)
 add_library (Eigen3::Eigen ALIAS eigen)
-target_include_directories(eigen INTERFACE Eigen)
+# SYSTEM: its headers trip our strict -Wconversion/-Wsign-conversion checks.
+target_include_directories(eigen SYSTEM INTERFACE Eigen)
 
 add_subdirectory(nlohmann EXCLUDE_FROM_ALL)
 
@@ -20,4 +21,5 @@ set(ENABLE_SPVREMAPPER OFF)
 set(ENABLE_GLSLANG_JS OFF)
 set(ENABLE_HLSL OFF)
 set(ENABLE_OPT OFF)
-add_subdirectory(glslang EXCLUDE_FROM_ALL)
+# SYSTEM: keep warnings from glslang headers out of our builds.
+add_subdirectory(glslang EXCLUDE_FROM_ALL SYSTEM)
