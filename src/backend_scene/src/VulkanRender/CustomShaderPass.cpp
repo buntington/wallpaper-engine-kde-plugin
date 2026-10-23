@@ -98,9 +98,11 @@ static void UpdateUniform(StagingBuffer* buf, const StagingBufferRef& bufref,
         // assert(type_size == value_u8.size());
         ; // to do
     }
-    // Padded arrays (e.g. float[16] in std140, 16 bytes per element) are written per element.
+    // Padded arrays (e.g. float[16] in std140, 16 bytes per element) given tightly packed
+    // are written per element; data already laid out with the stride is copied as is.
     const auto& u = uni->second;
-    if (u.array_len > 0 && u.elem_size > 0 && u.array_stride > u.elem_size) {
+    if (u.array_len > 0 && u.elem_size > 0 && u.array_stride > u.elem_size &&
+        value_u8.size() < u.array_len * u.array_stride) {
         const size_t count = std::min(u.array_len, value_u8.size() / u.elem_size);
         for (size_t i = 0; i < count; i++)
             buf->writeToBuf(bufref, value_u8.subspan(i * u.elem_size, u.elem_size),

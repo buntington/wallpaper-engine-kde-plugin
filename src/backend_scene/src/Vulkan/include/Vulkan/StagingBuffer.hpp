@@ -65,6 +65,11 @@ private:
 
     VmaBufferParameters m_stage_buf;
     VmaBufferParameters m_gpu_buf;
+
+    // Bytes changed since the last upload; only this range is copied to the GPU.
+    void         markDirty(VkDeviceSize begin, VkDeviceSize end);
+    VkDeviceSize m_dirty_begin { ~VkDeviceSize(0) };
+    VkDeviceSize m_dirty_end { 0 };
 };
 
 } // namespace vulkan

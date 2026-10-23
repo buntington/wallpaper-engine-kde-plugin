@@ -38,11 +38,11 @@ std::optional<VmaBufferParameters> CreateGpuBuffer(VmaAllocator allocator, VkBuf
 }
 
 void RecordCopyBuffer(const BufferParameters& dst_buf, const BufferParameters& src_buf,
-                      vvk::CommandBuffer& cmd) {
+                      VkDeviceSize offset, VkDeviceSize size, vvk::CommandBuffer& cmd) {
     VkBufferCopy copy {
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size      = src_buf.req_size,
+        .srcOffset = offset,
+        .dstOffset = offset,
+        .size      = size,
     };
     cmd.CopyBuffer(src_buf.handle, dst_buf.handle, copy);
 
@@ -52,8 +52,8 @@ void RecordCopyBuffer(const BufferParameters& dst_buf, const BufferParameters& s
         .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT,
         .buffer        = dst_buf.handle,
-        .offset        = 0,
-        .size          = VK_WHOLE_SIZE,
+        .offset        = offset,
+        .size          = size,
     };
     cmd.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
                         VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
@@ -211,8 +211,11 @@ bool StagingBuffer::writeToBuf(const StagingBufferRef& ref, std::span<uint8_t> d
         mapStageBuf();
     }
     VkDeviceSize size = std::min(ref.size - offset, data.size());
-    uint8_t*     raw  = (uint8_t*)m_stage_raw;
-    std::copy(data.begin(), data.begin() + size, raw + ref.offset + offset);
+    uint8_t*     dst  = (uint8_t*)m_stage_raw + ref.offset + offset;
+    // Unchanged bytes are already on the GPU, so they need no upload.
+    if (std::equal(data.begin(), data.begin() + (std::ptrdiff_t)size, dst)) return true;
+    std::copy(data.begin(), data.begin() + (std::ptrdiff_t)size, dst);
+    markDirty(ref.offset + offset, ref.offset + offset + size);
     return true;
 }
 
@@ -226,9 +229,16 @@ bool StagingBuffer::fillBuf(const StagingBufferRef& ref, size_t offset, size_t s
     uint8_t*     raw       = (uint8_t*)m_stage_raw;
     uint8_t*     raw_begin = raw + ref.offset + offset;
     std::fill(raw_begin, raw_begin + size_, c);
+    markDirty(ref.offset + offset, ref.offset + offset + size_);
     return true;
 }
 
+void StagingBuffer::markDirty(VkDeviceSize begin, VkDeviceSize end) {
+    m_dirty_begin = std::min(m_dirty_begin, begin);
+    m_dirty_end   = std::max(m_dirty_end, end);
+}
+
+// Copies only the bytes written since the last upload; the stage stays mapped.
 bool StagingBuffer::recordUpload(vvk::CommandBuffer& cmd) {
     if (! m_gpu_buf.handle) {
         if (auto opt = CreateGpuBuffer(m_device.vma_allocator(), m_usage, m_stage_buf.req_size);
@@ -236,14 +246,17 @@ bool StagingBuffer::recordUpload(vvk::CommandBuffer& cmd) {
             m_gpu_buf = std::move(opt.value());
         } else
             return false;
+        markDirty(0, m_stage_buf.req_size);
     }
-    if (m_stage_raw != nullptr) {
-        m_stage_buf.handle.UnMapMemory();
-        m_stage_raw = nullptr;
-    }
+    if (m_dirty_end <= m_dirty_begin) return true;
+
+    const VkDeviceSize offset = m_dirty_begin;
+    const VkDeviceSize size   = std::min(m_dirty_end, (VkDeviceSize)m_stage_buf.req_size) - offset;
+    m_dirty_begin             = ~VkDeviceSize(0);
+    m_dirty_end               = 0;
     VVK_CHECK_BOOL_RE(vmaFlushAllocation(
-        m_device.vma_allocator(), m_stage_buf.handle.Allocation(), 0, VK_WHOLE_SIZE));
-    RecordCopyBuffer(m_gpu_buf, m_stage_buf, cmd);
+        m_device.vma_allocator(), m_stage_buf.handle.Allocation(), offset, size));
+    RecordCopyBuffer(m_gpu_buf, m_stage_buf, offset, size, cmd);
     return true;
 }
 
