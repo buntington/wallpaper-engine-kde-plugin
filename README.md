@@ -27,7 +27,7 @@ Most wallpapers come with settings their author added: colors, sliders, toggles,
 Those now get their own **Properties** tab, right next to Wallpapers.
 Pick a wallpaper, open the tab, and change whatever you like. Hit Apply and the wallpaper updates right away.
 
-<img src="docs/screenshots/wallpaper-options.png" width="480" alt="The Properties tab for Neon Sunset">
+<img src="docs/screenshots/properties-tab.png" width="480" alt="The Properties tab for Neon Sunset">
 
 ### 3D scenes
 
