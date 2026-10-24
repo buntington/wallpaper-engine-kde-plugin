@@ -1,4 +1,4 @@
-# Wallpaper Engine for KDE (scene text fork)
+# Wallpaper Engine for KDE
 
 This is a fork of [catsout's Wallpaper Engine plugin for KDE](https://github.com/catsout/wallpaper-engine-kde-plugin) that aims to restore as many of the features of wallpaper engine as possible in Linux.
 
