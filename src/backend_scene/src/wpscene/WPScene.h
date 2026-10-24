@@ -30,6 +30,9 @@ public:
 
 class WPSceneGeneral {
 public:
+    bool  bloom { false };
+    float bloomstrength { 2.0f };
+    float bloomthreshold { 0.65f };
     bool                 FromJson(const nlohmann::json&);
     std::array<float, 3> clearcolor { 0.0f, 0.0f, 0.0f };
     bool                 cameraparallax { false };

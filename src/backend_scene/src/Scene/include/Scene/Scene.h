@@ -5,6 +5,7 @@
 #include "SceneRenderTarget.h"
 #include "SceneNode.h"
 #include "SceneLight.hpp"
+#include "SceneImageEffectLayer.h"
 
 #include "Core/NoCopyMove.hpp"
 
@@ -43,6 +44,8 @@ public:
     bool first_frame_ok { false };
 
     SceneMesh default_effect_mesh;
+    // full-screen passes drawn after the scene, in order (bloom)
+    std::vector<SceneImageEffectNode> postProcessing;
 
     std::unique_ptr<ParticleSystem> paritileSys;
 

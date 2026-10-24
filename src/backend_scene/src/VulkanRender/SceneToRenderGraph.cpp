@@ -212,6 +212,8 @@ std::unique_ptr<rg::RenderGraph> wallpaper::sceneToRenderGraph(Scene& scene) {
             ToGraphPass(node, SpecTex_Default, node->ID(), extra);
         },
         scene.sceneGraph.get());
+    for (auto& post : scene.postProcessing)
+        ToGraphPass(post.sceneNode.get(), post.output, -1, extra);
 
     for (auto& info : extra.link_info) {
         if (! exists(extra.id_link_map, info.link_id)) {

@@ -32,6 +32,9 @@ bool WPSceneGeneral::FromJson(const nlohmann::json& json) {
 	GET_JSON_NAME_VALUE(json, "cameraparallaxamount", cameraparallaxamount);
 	GET_JSON_NAME_VALUE(json, "cameraparallaxdelay", cameraparallaxdelay);
 	GET_JSON_NAME_VALUE(json, "cameraparallaxmouseinfluence", cameraparallaxmouseinfluence);
+	GET_JSON_NAME_VALUE_NOWARN(json, "bloom", bloom);
+	GET_JSON_NAME_VALUE_NOWARN(json, "bloomstrength", bloomstrength);
+	GET_JSON_NAME_VALUE_NOWARN(json, "bloomthreshold", bloomthreshold);
 	GET_JSON_NAME_VALUE_NOWARN(json, "zoom", zoom);
 	GET_JSON_NAME_VALUE_NOWARN(json, "fov", fov);
 	GET_JSON_NAME_VALUE_NOWARN(json, "nearz", nearz);

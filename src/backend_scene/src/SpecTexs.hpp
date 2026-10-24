@@ -66,6 +66,10 @@ constexpr std::string_view G_LCP { "g_LightsColorPremultiplied" };
 constexpr std::string_view G_LCR { "g_LightsColorRadius" };
 // 3D scenes: mirrored "reflected" models, sampled by REFLECTION materials
 constexpr std::string_view SpecTex_Reflection { "_rt_Reflection" };
+// scene bloom: bright parts at a quarter size, blurred at an eighth
+constexpr std::string_view SpecTex_BloomQuarter { "_rt_4FrameBuffer" };
+constexpr std::string_view SpecTex_BloomEighth { "_rt_8FrameBuffer" };
+constexpr std::string_view SpecTex_Bloom { "_rt_Bloom" };
 constexpr std::string_view G_LAMBIENT { "g_LightAmbientColor" };
 constexpr std::string_view G_LSKYLIGHT { "g_LightSkylightColor" };
 constexpr std::string_view G_EYEPOSITION { "g_EyePosition" };

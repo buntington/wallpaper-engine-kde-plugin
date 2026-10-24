@@ -259,7 +259,8 @@ void ParseSpecTexName(std::string& name, const wpscene::WPMaterial& wpmat,
         } else if (sstart_with(name, WE_HALF_COMPO_BUFFER_PREFIX)) {
         } else if (sstart_with(name, WE_QUARTER_COMPO_BUFFER_PREFIX)) {
         } else if (sstart_with(name, WE_FULL_COMPO_BUFFER_PREFIX)) {
-        } else if (name == SpecTex_Reflection) {
+        } else if (name == SpecTex_Reflection || name == SpecTex_BloomQuarter ||
+                   name == SpecTex_BloomEighth || name == SpecTex_Bloom) {
         } else {
             LOG_ERROR("unknown tex \"%s\"", name.c_str());
         }
@@ -572,6 +573,9 @@ void InitContext(ParseContext& context, fs::VFS& vfs, wpscene::WPScene& sc) {
         context.shader_updater->SetCameraParallax(cam_para);
     }
 }
+
+constexpr std::string_view Camera3D { "scene_3d" };
+constexpr std::string_view Camera3DReflect { "scene_3d_reflect" };
 
 // Values of user properties bound into shaders: "usershadervalues" maps a
 // property name to a material constant, e.g. a car's paint color.
@@ -998,6 +1002,7 @@ void ParseParticleObj(ParseContext& context, wpscene::WPParticleObject& wppartob
 
     auto& particle_obj = *p_particle_obj;
     auto& vfs          = *context.vfs;
+    ApplyUserShaderValues(context.user_properties, particle_obj.material);
 
     auto wppartRenderer = particle_obj.renderers.at(0);
     bool render_rope    = sstart_with(wppartRenderer.name, "rope");
@@ -1009,6 +1014,10 @@ void ParseParticleObj(ParseContext& context, wpscene::WPParticleObject& wppartob
 
     if (particle_obj.flags[wpscene::Particle::FlagEnum::perspective]) {
         spNode->SetCamera("global_perspective");
+    }
+    // 3D scenes place particles in their own space, e.g. stars in the sky
+    if (context.scene->cameras.count(std::string(Camera3D)) != 0) {
+        spNode->SetCamera(std::string(Camera3D));
     }
 
     SceneMaterial     material;
@@ -1140,8 +1149,65 @@ void ParseLightObj(ParseContext& context, wpscene::WPLightObject& light_obj) {
     context.scene->sceneGraph->AppendChild(node);
 }
 
-constexpr std::string_view Camera3D { "scene_3d" };
-constexpr std::string_view Camera3DReflect { "scene_3d_reflect" };
+// Scene bloom done as Wallpaper Engine does it, with its shaders: bright parts at a quarter
+// size, blurred both ways at an eighth, then added on top of the frame.
+void AddBloom(ParseContext& context, const wpscene::WPSceneGeneral& general) {
+    auto& scene = *context.scene;
+    for (auto [name, scale] : { std::pair { SpecTex_BloomQuarter, 0.25 },
+                                { SpecTex_BloomEighth, 0.125 },
+                                { SpecTex_Bloom, 0.125 } }) {
+        auto& rt = scene.renderTargets[std::string(name)];
+        rt       = { 2, 2, false };
+        rt.bind  = { .enable = true, .screen = true, .scale = scale };
+    }
+    struct Step {
+        std::string_view         material;
+        std::vector<std::string> textures;
+        std::string_view         output;
+    };
+    const std::array steps {
+        Step { "downsample_quarter_bloom", { "_rt_FullFrameBuffer" }, SpecTex_BloomQuarter },
+        Step { "downsample_eighth_blur_v", { std::string(SpecTex_BloomQuarter) }, SpecTex_BloomEighth },
+        Step { "blur_h_bloom", { std::string(SpecTex_BloomEighth) }, SpecTex_Bloom },
+        Step { "combine", { "_rt_FullFrameBuffer", std::string(SpecTex_Bloom) }, SpecTex_Default },
+    };
+    for (const auto& step : steps) {
+        nlohmann::json      json;
+        wpscene::WPMaterial wpmat;
+        const auto path = "/assets/materials/util/" + std::string(step.material) + ".json";
+        if (! PARSE_JSON(fs::GetFileContent(*context.vfs, path), json) || ! wpmat.FromJson(json)) {
+            LOG_ERROR("bloom: can't load %s", path.c_str());
+            scene.postProcessing.clear();
+            return;
+        }
+        wpmat.textures = step.textures;
+        if (&step == &steps.front()) {
+            wpmat.constantshadervalues["bloomstrength"]  = { general.bloomstrength };
+            wpmat.constantshadervalues["bloomthreshold"] = { general.bloomthreshold };
+        }
+
+        auto              node = std::make_shared<SceneNode>();
+        SceneMaterial     material;
+        WPShaderValueData svData;
+        WPShaderInfo      shaderInfo;
+        shaderInfo.baseConstSvs = context.global_base_uniforms;
+        if (! LoadMaterial(*context.vfs, wpmat, &scene, node.get(), &material, &svData, &shaderInfo)) {
+            LOG_ERROR("bloom: material %s failed", path.c_str());
+            scene.postProcessing.clear();
+            return;
+        }
+        LoadConstvalue(material, wpmat, shaderInfo);
+        material.blenmode = BlendMode::Normal;
+
+        auto mesh = std::make_shared<SceneMesh>();
+        mesh->ChangeMeshDataFrom(scene.default_effect_mesh);
+        mesh->AddMaterial(std::move(material));
+        node->AddMesh(mesh);
+        node->SetCamera("effect");
+        context.shader_updater->SetNodeData(node.get(), svData);
+        scene.postProcessing.push_back({ std::string(step.output), node });
+    }
+}
 
 void ParseModelObj(ParseContext& context, WPModelObject& obj) {
     auto& vfs   = *context.vfs;
@@ -1442,6 +1508,8 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
                    },
                    obj);
     }
+
+    if (sc.general.bloom) AddBloom(context, sc.general);
 
     WPShaderParser::FinalGlslang();
     return context.scene;
