@@ -21,6 +21,10 @@ import org.kde.kquickcontrolsaddons 2.0
 RowLayout {
     Layout.fillWidth: true
 
+    // the selected wallpaper and its per-wallpaper options, for the properties tab
+    readonly property var currentWallpaper: right_content.wpmodel
+    readonly property alias wallpaperOptions: right_opts
+
     function saveConfig() {
         right_opts.save_changes();
     }
@@ -778,13 +782,6 @@ RowLayout {
                             });
                         }
                     }
-                }
-                WallpaperProperties {
-                    Layout.fillWidth: true
-                    projectPath: right_content.wpmodel.type === 'scene'
-                        ? Common.getWpModelProjectPath(right_content.wpmodel) : ''
-                    readfile: pyext.readfile
-                    options: right_opts
                 }
                 PlasmaComponents.TextArea {
                     Layout.alignment: Qt.AlignTop

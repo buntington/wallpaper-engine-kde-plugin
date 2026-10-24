@@ -128,9 +128,12 @@ ColumnLayout {
     // Content
     PlasmaComponents.TabBar {
         id: bar
-        implicitWidth: font.pixelSize*8 * 3
+        implicitWidth: font.pixelSize*8 * 4
         PlasmaComponents.TabButton {
             text: "Wallpapers"
+        }
+        PlasmaComponents.TabButton {
+            text: "Wallpaper Properties"
         }
         PlasmaComponents.TabButton {
             text: "Settings"
@@ -147,6 +150,12 @@ ColumnLayout {
 
         WallpaperPage {
             id: wallpaperPage
+        }
+
+        PropertiesPage {
+            wallpaper: wallpaperPage.currentWallpaper
+            options: wallpaperPage.wallpaperOptions
+            readfile: pyext ? pyext.readfile : null
         }
 
         SettingPage {
