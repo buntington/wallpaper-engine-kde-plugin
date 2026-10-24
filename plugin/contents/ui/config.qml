@@ -133,7 +133,7 @@ ColumnLayout {
             text: "Wallpapers"
         }
         PlasmaComponents.TabButton {
-            text: "Wallpaper Properties"
+            text: "Properties"
         }
         PlasmaComponents.TabButton {
             text: "Settings"

@@ -260,7 +260,7 @@ void ParseSpecTexName(std::string& name, const wpscene::WPMaterial& wpmat,
         } else if (sstart_with(name, WE_QUARTER_COMPO_BUFFER_PREFIX)) {
         } else if (sstart_with(name, WE_FULL_COMPO_BUFFER_PREFIX)) {
         } else if (name == SpecTex_Reflection || name == SpecTex_BloomQuarter ||
-                   name == SpecTex_BloomEighth || name == SpecTex_Bloom) {
+                   name == SpecTex_BloomEighth || sstart_with(name, SpecTex_Bloom)) {
         } else {
             LOG_ERROR("unknown tex \"%s\"", name.c_str());
         }
@@ -335,6 +335,9 @@ bool LoadMaterial(fs::VFS& vfs, const wpscene::WPMaterial& wpmat, Scene* pScene,
     auto textures = wpmat.textures;
     if (pWPShaderInfo->defTexs.size() > 0) {
         for (auto& t : pWPShaderInfo->defTexs) {
+            // engine textures of shadow-casting lights and light cookies; the combos that
+            // sample them (LIGHTS_SHADOW_MAPPING, LIGHTS_COOKIE) are never on
+            if (t.second == "_rt_shadowAtlas" || sstart_with(t.second, "_alias_")) continue;
             if (textures.size() > t.first) {
                 if (! textures.at(t.first).empty()) continue;
             } else {
@@ -1149,6 +1152,41 @@ void ParseLightObj(ParseContext& context, wpscene::WPLightObject& light_obj) {
     context.scene->sceneGraph->AppendChild(node);
 }
 
+// A full-screen pass drawn after the scene with one of Wallpaper Engine's util materials.
+std::shared_ptr<SceneNode> MakePostNode(ParseContext& context, std::string_view name,
+                                        const std::vector<std::string>& textures,
+                                        const std::function<void(wpscene::WPMaterial&)>& tweak) {
+    auto&               scene = *context.scene;
+    nlohmann::json      json;
+    wpscene::WPMaterial wpmat;
+    const auto          path = "/assets/materials/util/" + std::string(name) + ".json";
+    if (! PARSE_JSON(fs::GetFileContent(*context.vfs, path), json) || ! wpmat.FromJson(json)) {
+        LOG_ERROR("can't load %s", path.c_str());
+        return nullptr;
+    }
+    wpmat.textures = textures;
+    if (tweak) tweak(wpmat);
+
+    auto              node = std::make_shared<SceneNode>();
+    SceneMaterial     material;
+    WPShaderValueData svData;
+    WPShaderInfo      shaderInfo;
+    shaderInfo.baseConstSvs = context.global_base_uniforms;
+    if (! LoadMaterial(*context.vfs, wpmat, &scene, node.get(), &material, &svData, &shaderInfo)) {
+        LOG_ERROR("material %s failed", path.c_str());
+        return nullptr;
+    }
+    LoadConstvalue(material, wpmat, shaderInfo);
+
+    auto mesh = std::make_shared<SceneMesh>();
+    mesh->ChangeMeshDataFrom(scene.default_effect_mesh);
+    mesh->AddMaterial(std::move(material));
+    node->AddMesh(mesh);
+    node->SetCamera("effect");
+    context.shader_updater->SetNodeData(node.get(), svData);
+    return node;
+}
+
 // Scene bloom done as Wallpaper Engine does it, with its shaders: bright parts at a quarter
 // size, blurred both ways at an eighth, then added on top of the frame.
 void AddBloom(ParseContext& context, const wpscene::WPSceneGeneral& general) {
@@ -1171,42 +1209,79 @@ void AddBloom(ParseContext& context, const wpscene::WPSceneGeneral& general) {
         Step { "blur_h_bloom", { std::string(SpecTex_BloomEighth) }, SpecTex_Bloom },
         Step { "combine", { "_rt_FullFrameBuffer", std::string(SpecTex_Bloom) }, SpecTex_Default },
     };
+    std::vector<SceneImageEffectNode> passes;
     for (const auto& step : steps) {
-        nlohmann::json      json;
-        wpscene::WPMaterial wpmat;
-        const auto path = "/assets/materials/util/" + std::string(step.material) + ".json";
-        if (! PARSE_JSON(fs::GetFileContent(*context.vfs, path), json) || ! wpmat.FromJson(json)) {
-            LOG_ERROR("bloom: can't load %s", path.c_str());
-            scene.postProcessing.clear();
-            return;
-        }
-        wpmat.textures = step.textures;
-        if (&step == &steps.front()) {
-            wpmat.constantshadervalues["bloomstrength"]  = { general.bloomstrength };
-            wpmat.constantshadervalues["bloomthreshold"] = { general.bloomthreshold };
-        }
-
-        auto              node = std::make_shared<SceneNode>();
-        SceneMaterial     material;
-        WPShaderValueData svData;
-        WPShaderInfo      shaderInfo;
-        shaderInfo.baseConstSvs = context.global_base_uniforms;
-        if (! LoadMaterial(*context.vfs, wpmat, &scene, node.get(), &material, &svData, &shaderInfo)) {
-            LOG_ERROR("bloom: material %s failed", path.c_str());
-            scene.postProcessing.clear();
-            return;
-        }
-        LoadConstvalue(material, wpmat, shaderInfo);
-        material.blenmode = BlendMode::Normal;
-
-        auto mesh = std::make_shared<SceneMesh>();
-        mesh->ChangeMeshDataFrom(scene.default_effect_mesh);
-        mesh->AddMaterial(std::move(material));
-        node->AddMesh(mesh);
-        node->SetCamera("effect");
-        context.shader_updater->SetNodeData(node.get(), svData);
-        scene.postProcessing.push_back({ std::string(step.output), node });
+        const bool first = &step == &steps.front();
+        auto node = MakePostNode(context, step.material, step.textures, [&](wpscene::WPMaterial& m) {
+            if (! first) return;
+            m.constantshadervalues["bloomstrength"]  = { general.bloomstrength };
+            m.constantshadervalues["bloomthreshold"] = { general.bloomthreshold };
+        });
+        if (! node) return;
+        node->Mesh()->Material()->blenmode = BlendMode::Normal;
+        passes.push_back({ std::string(step.output), node });
     }
+    scene.postProcessing.insert(scene.postProcessing.end(), passes.begin(), passes.end());
+}
+
+// HDR bloom the way Wallpaper Engine does it: a soft threshold while halving the frame,
+// more halvings, then each level added back into the one above and onto the frame.
+// Targets are 8 bit here, so values above 1 that real HDR keeps are clipped first.
+void AddHdrBloom(ParseContext& context, const wpscene::WPSceneGeneral& general) {
+    auto&     scene  = *context.scene;
+    const int levels = std::clamp(general.bloomhdriterations, 1, 7);
+    std::vector<std::string> mips;
+    for (int i = 0; i < levels; i++) {
+        mips.push_back(std::string(SpecTex_Bloom) + "_" + std::to_string(i + 1));
+        auto& rt = scene.renderTargets[mips.back()];
+        rt       = { 2, 2, false };
+        rt.bind  = { .enable = true, .screen = true, .scale = std::ldexp(1.0, -(i + 1)) };
+    }
+    const auto scale_of = [](int level) { return (float)std::ldexp(1.0, -level); }; // 0 = frame
+
+    const float threshold = general.bloomhdrthreshold;
+    const float knee      = std::max(threshold * general.bloomhdrfeather, 1e-4f);
+    std::vector<SceneImageEffectNode> passes;
+    const auto add = [&](std::string_view material, std::vector<std::string> textures,
+                         const std::string& output, int source_level,
+                         const std::function<void(wpscene::WPMaterial&)>& tweak) {
+        auto node = MakePostNode(context, material, textures, tweak);
+        if (! node) return false;
+        if (source_level >= 0) context.shader_updater->SetSourceTexelVar(node.get(), scale_of(source_level));
+        passes.push_back({ output, node });
+        return true;
+    };
+    // threshold into the first level, then keep halving
+    if (! add("hdr_downsample_bloom", { "_rt_FullFrameBuffer" }, mips[0], 0, [&](wpscene::WPMaterial& m) {
+            m.constantshadervalues["bloomstrength"] = { general.bloomhdrstrength };
+            m.constantshadervalues["blend"] = { threshold, threshold - knee, 2.0f * knee, 0.25f / knee };
+        }))
+        return;
+    for (int i = 1; i < levels; i++)
+        if (! add("hdr_downsample", { mips[i - 1] }, mips[i], i, {})) return;
+    // blur back up, each level added into the one above
+    for (int i = levels - 1; i > 0; i--)
+        if (! add("hdr_upsample", { mips[i] }, mips[i - 1], i + 1, [&](wpscene::WPMaterial& m) {
+                m.constantshadervalues["scatter"] = { general.bloomhdrscatter };
+            }))
+            return;
+    if (! add("combine_hdr_upsample_linear", { "_rt_FullFrameBuffer", mips[0] },
+              std::string(SpecTex_Default), -1, {}))
+        return;
+    for (auto& p : passes)
+        if (p.sceneNode->Mesh()->Material()->blenmode != BlendMode::Additive)
+            p.sceneNode->Mesh()->Material()->blenmode = BlendMode::Normal;
+    scene.postProcessing.insert(scene.postProcessing.end(), passes.begin(), passes.end());
+}
+
+// Fades to the scheme color between camera paths ("camerafade").
+void AddCameraFade(ParseContext& context) {
+    auto node = MakePostNode(context, "fade", {}, [&context](wpscene::WPMaterial& m) {
+        ApplyUserShaderValues(context.user_properties, m);
+    });
+    if (! node) return;
+    context.scene->postProcessing.push_back({ std::string(SpecTex_Default), node });
+    context.shader_updater->SetCameraFade(node.get());
 }
 
 void ParseModelObj(ParseContext& context, WPModelObject& obj) {
@@ -1509,7 +1584,11 @@ std::shared_ptr<Scene> WPSceneParser::Parse(std::string_view scene_id, const std
                    obj);
     }
 
-    if (sc.general.bloom) AddBloom(context, sc.general);
+    if (sc.general.bloom) {
+        if (sc.general.hdr) AddHdrBloom(context, sc.general);
+        else AddBloom(context, sc.general);
+    }
+    if (sc.general.camerafade && context.shader_updater->HasCameraPath()) AddCameraFade(context);
 
     WPShaderParser::FinalGlslang();
     return context.scene;

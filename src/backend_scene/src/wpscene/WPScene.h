@@ -31,6 +31,13 @@ public:
 class WPSceneGeneral {
 public:
     bool  bloom { false };
+    bool  camerafade { false };
+    bool  hdr { false };
+    float bloomhdrstrength { 2.0f };
+    float bloomhdrthreshold { 1.0f };
+    float bloomhdrscatter { 1.62f };
+    float bloomhdrfeather { 0.1f };
+    int   bloomhdriterations { 8 };
     float bloomstrength { 2.0f };
     float bloomthreshold { 0.65f };
     bool                 FromJson(const nlohmann::json&);

@@ -89,6 +89,12 @@ public:
         m_camera_path  = std::move(path);
         m_path_cameras = std::move(cameras);
     }
+    bool HasCameraPath() const { return ! m_camera_path.Empty(); }
+    // a full-screen node whose g_Alpha fades in and out around camera path changes
+    void SetCameraFade(SceneNode* node) { m_fade_node = node; }
+    // g_RenderVar0 of this node gets the texel offsets of its source, a target of
+    // `scale` times the screen size (HDR bloom passes)
+    void SetSourceTexelVar(SceneNode* node, float scale) { m_texel_var_nodes[node] = scale; }
 
     void SetScreenSize(i32 w, i32 h) override { m_screen_size = { (float)w, (float)h }; }
 
@@ -116,6 +122,9 @@ private:
     WPCameraPath                              m_camera_path;
     std::vector<std::shared_ptr<SceneCamera>> m_path_cameras;
     double                                    m_path_time { 0 };
+    SceneNode*                                m_fade_node { nullptr };
+    Map<SceneNode*, float>                    m_texel_var_nodes;
+    float                                     m_fade_alpha { 0 };
     std::array<std::array<float, 64>, 6> m_audio {};
 };
 } // namespace wallpaper

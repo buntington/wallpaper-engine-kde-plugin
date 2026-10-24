@@ -48,6 +48,7 @@ void WPShaderValueUpdater::FrameBegin() {
         m_path_time += m_scene->frameTime;
         const auto key = m_camera_path.Sample(m_path_time);
         for (auto& cam : m_path_cameras) cam->SetLookAt(key.eye, key.center, key.up);
+        if (m_fade_node) m_fade_alpha = (float)m_camera_path.FadeAlpha(m_path_time, 0.75);
     }
 
     double new_time    = m_mouseDelayedTime + m_scene->frameTime;
@@ -257,6 +258,13 @@ void WPShaderValueUpdater::UpdateUniforms(SceneNode* pNode, sprite_map_t& sprite
         updateOp(G_SCREEN,
                  std::array<float, 3> {
                      m_screen_size[0], m_screen_size[1], m_screen_size[0] / m_screen_size[1] });
+
+    if (pNode == m_fade_node) updateOp(std::string_view { "g_Alpha" }, m_fade_alpha);
+    if (auto it = m_texel_var_nodes.find(pNode); it != m_texel_var_nodes.end()) {
+        const float x = 1.0f / std::max(1.0f, m_screen_size[0] * it->second);
+        const float y = 1.0f / std::max(1.0f, m_screen_size[1] * it->second);
+        updateOp(std::string_view { "g_RenderVar0" }, std::array { -x, -y, x, y });
+    }
 
     if (info.has_PARALLAXPOSITION) {
         Vector2f para =

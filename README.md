@@ -24,10 +24,10 @@ Fonts come from the wallpaper when it ships one, and from your system otherwise.
 ### The wallpaper's own options
 
 Most wallpapers come with settings their author added: colors, sliders, toggles, "show the clock or not".
-Those now get their own **Wallpaper Properties** tab, next to Wallpapers and Settings.
+Those now get their own **Properties** tab, right next to Wallpapers.
 Pick a wallpaper, open the tab, and change whatever you like. Hit Apply and the wallpaper updates right away.
 
-<img src="docs/screenshots/wallpaper-options.png" width="480" alt="The Wallpaper Properties tab for Neon Sunset">
+<img src="docs/screenshots/wallpaper-options.png" width="480" alt="The Properties tab for Neon Sunset">
 
 ### 3D scenes
 
@@ -35,8 +35,8 @@ Wallpapers built from 3D models are supported in this implementation with these 
 
 - the models, with their lighting and normal maps
 - floor reflections
-- the slow camera moves the author recorded
-- bloom (the soft glow around bright things)
+- the slow camera moves the author recorded, with the fade between shots if the wallpaper asks for it
+- bloom (the soft glow around bright things), including the HDR kind newer wallpapers use
 - particles placed in the 3D scene, like Neon Sunset's stars
 
 | | |
@@ -78,20 +78,19 @@ For other distros, the dependency lists in [OLD-README.md](./OLD-README.md) stil
 ## What still doesn't work
 
 I've tested against the 26 scene wallpapers I have downloaded, and they all render, but your mileage may vary.
-A few things are still missing:
+A few things are still missing or rough:
 
-- Shadows in 3D scenes (`_rt_shadowAtlas`), so some 3D wallpapers look a little flatter than in Wallpaper Engine.
-- HDR bloom. Scenes that use it get the regular bloom instead.
-- Camera fades between camera paths. The camera cuts to the next path instead.
+- Lights that cast shadows. None of my wallpapers use them (every light has `castshadow` off), so I couldn't test it and left it out.
+- HDR bloom runs on 8-bit buffers. Real HDR keeps colors brighter than white and blooms those; here they're clipped to white first, so HDR glows (Razer Bedroom's neon, for example) come out softer than in Wallpaper Engine.
 - Web wallpapers work as they did previously.
 
 If a wallpaper misbehaves, the log usually says why:
-`journalctl --user -b | grep -i wescene`
+`journalctl --user -b -t plasmashell | grep ERROR`
 
 ## Developing
 
-`devtest/` has scripts that render a wallpaper in its own window using the build in `stage/`, so you don't have to restart Plasma for every change.
-`devtest/sweep.sh` renders a whole list of wallpapers and writes out screenshots and logs.
+`devtest/` has scripts that render a wallpaper with the build in `stage/`, so you don't have to restart Plasma for every change.
+`devtest/sweep.sh` renders a whole list of wallpapers in a hidden KWin session and writes out screenshots and logs.
 I use that to check nothing broke.
 
 ## License

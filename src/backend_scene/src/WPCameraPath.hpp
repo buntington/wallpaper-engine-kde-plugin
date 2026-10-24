@@ -29,8 +29,13 @@ public:
 
     // Camera at t seconds since the scene started.
     Key Sample(double t) const;
+    // 1 at the cut between two paths, 0 more than `fade` seconds away from one.
+    double FadeAlpha(double t, double fade) const;
 
 private:
+    // the path playing at t, and t within it
+    const Path& Locate(double t, double& local) const;
+
     std::vector<Path> m_paths;
     double            m_total { 0 };
 };

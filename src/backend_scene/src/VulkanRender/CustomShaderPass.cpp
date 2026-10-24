@@ -345,10 +345,11 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, RenderingReso
         {
             VkColorComponentFlags colorMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
-            // 3D models keep the target opaque, whatever alpha their shaders output
+            // The screen stays opaque, and so do 3D model targets, whatever alpha the
+            // shaders output (e.g. the translucent camera fade).
             bool alpha =
                 ! (m_desc.node->Camera().empty() || sstart_with(m_desc.node->Camera(), "global")) &&
-                ! m_desc.depth;
+                ! m_desc.depth && m_desc.output != SpecTex_Default;
 
             if (alpha) colorMask |= VK_COLOR_COMPONENT_A_BIT;
             color_blend.colorWriteMask = colorMask;

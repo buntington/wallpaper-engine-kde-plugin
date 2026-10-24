@@ -52,9 +52,10 @@ bool WPCameraPath::Load(const std::vector<std::string>& files, fs::VFS& vfs) {
     return ! m_paths.empty();
 }
 
-WPCameraPath::Key WPCameraPath::Sample(double t) const {
-    // pick the path playing at t; paths of zero duration only show their first key
+const WPCameraPath::Path& WPCameraPath::Locate(double t, double& local) const {
+    // paths of zero duration only show their first key
     const Path* path = &m_paths.front();
+    local            = 0;
     if (m_total > 0) {
         t = std::fmod(std::max(t, 0.0), m_total);
         for (const auto& p : m_paths) {
@@ -62,8 +63,22 @@ WPCameraPath::Key WPCameraPath::Sample(double t) const {
             if (t < p.duration) break;
             t -= p.duration;
         }
+        local = t;
     }
-    const auto& keys = path->keys;
+    return *path;
+}
+
+double WPCameraPath::FadeAlpha(double t, double fade) const {
+    double      local;
+    const auto& path = Locate(t, local);
+    if (m_total <= 0 || fade <= 0) return 0;
+    const double edge = std::min(local, path.duration - local);
+    return std::clamp(1.0 - edge / fade, 0.0, 1.0);
+}
+
+WPCameraPath::Key WPCameraPath::Sample(double t) const {
+    const auto& path = Locate(t, t);
+    const auto& keys = path.keys;
     auto next = std::upper_bound(keys.begin(), keys.end(), t, [](double v, const Key& k) {
         return v < k.time;
     });
