@@ -1,11 +1,8 @@
 # Wallpaper Engine for KDE (scene text fork)
 
-This is my personal fork of [catsout's Wallpaper Engine plugin for KDE](https://github.com/catsout/wallpaper-engine-kde-plugin).
-It lets Plasma 6 play your Wallpaper Engine wallpapers straight from your Steam library.
+This is a fork of [catsout's Wallpaper Engine plugin for KDE](https://github.com/catsout/wallpaper-engine-kde-plugin) that aims to restore as many of the features of wallpaper engine as possible in Linux.
 
-I started it because the clock on a black hole wallpaper I liked just wouldn't show up.
-One thing led to another, and now a lot more of Wallpaper Engine's scene features work.
-The renderer and the plugin live together in this one repo, so there's only one thing to build.
+This fork supports text in scenes and 3d scenes with a Vulkan implementation.
 
 The original project has moved on to [waywallen](https://github.com/waywallen/waywallen).
 The old README, with install notes for other distros, is still here as [OLD-README.md](./OLD-README.md).
