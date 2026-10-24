@@ -2,7 +2,7 @@
 
 This is a fork of [catsout's Wallpaper Engine plugin for KDE](https://github.com/catsout/wallpaper-engine-kde-plugin) that aims to restore as many of the features of wallpaper engine as possible in Linux.
 
-This fork supports text in scenes and 3d scenes with a Vulkan implementation.
+This fork supports text layers and 3d scenes with a updated Vulkan implementation.
 
 The original project has moved on to [waywallen](https://github.com/waywallen/waywallen).
 The old README, with install notes for other distros, is still here as [OLD-README.md](./OLD-README.md).
@@ -31,7 +31,7 @@ Pick a wallpaper, open the tab, and change whatever you like. Hit Apply and the 
 
 ### 3D scenes
 
-Wallpapers built from 3D models used to come up blank or broken. Now you get:
+Wallpapers built from 3D models are supported in this implementation with these features:
 
 - the models, with their lighting and normal maps
 - floor reflections
@@ -46,8 +46,7 @@ Wallpapers built from 3D models used to come up blank or broken. Now you get:
 
 ### Music visualizers
 
-Wallpapers that react to audio get the spectrum of whatever your system is playing.
-You don't have to set up anything.
+Wallpapers that react to audio get the spectrum of whatever your system is playing using Mini-audio.
 
 ![Techno](docs/screenshots/techno.jpg)
 
@@ -78,13 +77,13 @@ For other distros, the dependency lists in [OLD-README.md](./OLD-README.md) stil
 
 ## What still doesn't work
 
-I've tested against the 26 scene wallpapers I have downloaded, and they all render.
+I've tested against the 26 scene wallpapers I have downloaded, and they all render, but your mileage may vary.
 A few things are still missing:
 
 - Shadows in 3D scenes (`_rt_shadowAtlas`), so some 3D wallpapers look a little flatter than in Wallpaper Engine.
 - HDR bloom. Scenes that use it get the regular bloom instead.
 - Camera fades between camera paths. The camera cuts to the next path instead.
-- Web wallpapers work as they did upstream. None of the above applies to them.
+- Web wallpapers work as they did previously.
 
 If a wallpaper misbehaves, the log usually says why:
 `journalctl --user -b | grep -i wescene`
